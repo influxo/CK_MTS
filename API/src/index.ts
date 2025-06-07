@@ -3,6 +3,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import routes from "./routes";
 import initDatabase from "./db/init";
+import loggerMiddleware from "./middlewares/logger";
+import { swaggerUi, swaggerSpec } from "./config/swagger";
 
 // Load environment variables
 dotenv.config();
@@ -15,8 +17,24 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Request logging middleware
+app.use(loggerMiddleware);
+
+// Swagger documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 // Routes
 app.use('/api', routes);
+
+// Error handling middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error(err.stack);
+  res.status(500).json({
+    success: false,
+    message: 'Internal Server Error',
+    error: process.env.NODE_ENV === 'production' ? {} : err
+  });
+});
 
 // Initialize database and start server
 initDatabase()
