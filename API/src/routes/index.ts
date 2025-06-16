@@ -4,6 +4,7 @@ import { healthController } from "../controllers/health";
 import usersRouter from "./users";
 import authRouter from "./auth";
 import logsRouter from "./logs";
+import projectsRouter from "./projects";
 import loggerMiddleware from "../middlewares/logger";
 
 const router = Router();
@@ -49,5 +50,8 @@ router.use("/users", usersRouter);
 
 // Logs routes
 router.use("/logs", logsRouter);
+
+// Projects routes
+router.use("/projects", projectsRouter);
 
 export default router;
