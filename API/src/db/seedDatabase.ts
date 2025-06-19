@@ -4,7 +4,7 @@ import initDatabase from './init';
 /**
  * Main function to initialize database and run seeds
  */
-async function seedDatabase() {
+export async function seedDatabase() {
   try {
     console.log('Initializing database...');
     await initDatabase();
@@ -20,5 +20,5 @@ async function seedDatabase() {
   }
 }
 
-// Run the seed function
-seedDatabase();
+// Export the function to be called explicitly
+// Don't run automatically to prevent duplicate execution

@@ -94,6 +94,7 @@ export const authorize = (requiredRoles: string[]) => {
         return;
       }
       
+      
       // Get user roles
       const userWithRoles = await User.findByPk(req.user.id, {
         include: [

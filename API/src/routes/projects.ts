@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import projectsController from "../controllers/projects/index";
 import { authenticate, authorize } from "../middlewares/auth";
-import { ROLES } from "../constants/roles";
+import roles, { ROLES } from "../constants/roles";
 import loggerMiddleware from "../middlewares/logger";
 
 const router = Router();
@@ -158,7 +158,7 @@ router.get("/:id", authenticate, (req: Request, res: Response): void => {
 router.post(
   "/",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     projectsController.createProject(req, res);
   }
@@ -216,7 +216,7 @@ router.post(
 router.put(
   "/:id",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     projectsController.updateProject(req, res);
   }
@@ -256,9 +256,112 @@ router.put(
 router.delete(
   "/:id",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     projectsController.deleteProject(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /projects/{projectId}/users:
+ *   get:
+ *     summary: Get all users assigned to a project
+ *     tags: [Projects]
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The project ID
+ *     responses:
+ *       200:
+ *         description: List of users assigned to the project
+ *       404:
+ *         description: Project not found
+ */
+router.get(
+  "/:projectId/users",
+  authenticate,
+  (req: Request, res: Response): void => {
+    projectsController.assignments.getProjectUsers(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /projects/{projectId}/users:
+ *   post:
+ *     summary: Assign a user to a project
+ *     tags: [Projects]
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The project ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - userId
+ *             properties:
+ *               userId:
+ *                 type: string
+ *                 description: The user ID to assign
+ *     responses:
+ *       201:
+ *         description: User assigned to project successfully
+ *       400:
+ *         description: Invalid parameters or user already assigned
+ *       404:
+ *         description: Project or user not found
+ */
+router.post(
+  "/:projectId/users",
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  (req: Request, res: Response): void => {
+    projectsController.assignments.assignUserToProject(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /projects/{projectId}/users/{userId}:
+ *   delete:
+ *     summary: Remove a user from a project
+ *     tags: [Projects]
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The project ID
+ *       - in: path
+ *         name: userId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The user ID
+ *     responses:
+ *       200:
+ *         description: User removed from project successfully
+ *       404:
+ *         description: User not assigned to this project
+ */
+router.delete(
+  "/:projectId/users/:userId",
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  (req: Request, res: Response): void => {
+    projectsController.assignments.removeUserFromProject(req, res);
   }
 );
 

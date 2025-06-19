@@ -1,6 +1,7 @@
-import { Model, DataTypes } from "sequelize";
+import { Model, DataTypes, HasManyGetAssociationsMixin, HasManyAddAssociationMixin, HasManyRemoveAssociationMixin } from "sequelize";
 import sequelize from "../db/connection";
 import { v4 as uuidv4 } from "uuid";
+import User from "./User";
 
 class Project extends Model {
   // Define attributes
@@ -13,6 +14,12 @@ class Project extends Model {
   // Timestamps
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
+
+  // Associations
+  public readonly members?: User[];
+  public getMembers!: HasManyGetAssociationsMixin<User>;
+  public addMember!: HasManyAddAssociationMixin<User, string>;
+  public removeMember!: HasManyRemoveAssociationMixin<User, string>;
 }
 
 Project.init(

@@ -5,6 +5,7 @@ import routes from "./routes";
 import initDatabase from "./db/init";
 import loggerMiddleware from "./middlewares/logger";
 import { swaggerUi, swaggerSpec } from "./config/swagger";
+import {seedDatabase} from "./db/seedDatabase";
 
 // Load environment variables
 dotenv.config();
@@ -39,6 +40,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // Initialize database and start server
 initDatabase()
   .then(() => {
+    // Run seedDatabase to populate the empty database
+    // seedDatabase();
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });

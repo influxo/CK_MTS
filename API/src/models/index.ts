@@ -5,6 +5,7 @@ import UserRole from "./UserRole";
 import RolePermission from "./RolePermission";
 import Log from "./Log";
 import Project from "./Project";
+import ProjectUser from "./ProjectUser";
 
 // Set up associations
 
@@ -32,5 +33,26 @@ Permission.belongsToMany(Role, {
   as: "roles",
 });
 
+// Project-User associations (Many-to-Many)
+Project.belongsToMany(User, {
+  through: ProjectUser,
+  foreignKey: "projectId",
+  as: "members",
+});
+User.belongsToMany(Project, {
+  through: ProjectUser,
+  foreignKey: "userId",
+  as: "projects",
+});
+
+ProjectUser.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user"
+});
+ProjectUser.belongsTo(Project, {
+  foreignKey: "projectId",
+  as: "project"
+});
+
 // Export models
-export { User, Role, Permission, UserRole, RolePermission, Log, Project };
+export { User, Role, Permission, UserRole, RolePermission, Log, Project, ProjectUser };

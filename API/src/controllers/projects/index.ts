@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { Project } from "../../models";
 import { v4 as uuidv4 } from "uuid";
 import { Op } from "sequelize";
+import assignmentsController from "./assignments";
 
 /**
  * Get all projects
@@ -179,4 +180,5 @@ export default {
   createProject,
   updateProject,
   deleteProject,
+  assignments: assignmentsController,
 };

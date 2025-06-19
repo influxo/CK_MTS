@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import usersController from '../controllers/users';
 import { authenticate, authorize } from '../middlewares/auth';
 import loggerMiddleware from '../middlewares/logger';
+import { ROLES } from '../constants/roles';
 
 const router = Router();
 
@@ -35,7 +36,7 @@ router.use(loggerMiddleware);
  */
 router.get('/', 
   authenticate, 
-  authorize(['System Administrator', 'Program Manager']), 
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]), 
   (req: Request, res: Response): void => {
     usersController.getAllUsers(req, res);
   }
