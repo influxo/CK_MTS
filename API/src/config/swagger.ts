@@ -211,7 +211,7 @@ const swaggerDefinition = {
 const options = {
   swaggerDefinition,
   // Path to the API docs
-  apis: ['./src/routes/*.ts', './src/controllers/**/*.ts'],
+  apis: ['./src/routes/*.ts', './src/routes/**/*.ts', './src/controllers/**/*.ts'],
 };
 
 // Initialize swagger-jsdoc

@@ -2,14 +2,17 @@ import { Model, DataTypes, HasManyGetAssociationsMixin, HasManyAddAssociationMix
 import sequelize from "../db/connection";
 import { v4 as uuidv4 } from "uuid";
 import User from "./User";
+import Subproject from "./Subproject";
 
-class Project extends Model {
+class Activity extends Model {
   // Define attributes
   public id!: string;
   public name!: string;
   public description!: string;
   public category!: string;
-  public status!: string; // 'active', 'inactive'
+  public frequency!: string; // Based on the image: 'daily', 'weekly', 'monthly', etc.
+  public reportingFields!: string; // JSON string to store the reporting fields from the image
+  public subprojectId!: string; // Foreign key to parent Subproject
 
   // Timestamps
   public readonly createdAt!: Date;
@@ -22,7 +25,7 @@ class Project extends Model {
   public removeMember!: HasManyRemoveAssociationMixin<User, string>;
 }
 
-Project.init(
+Activity.init(
   {
     id: {
       type: DataTypes.UUID,
@@ -41,6 +44,29 @@ Project.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    frequency: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    reportingFields: {
+      type: DataTypes.TEXT, // Store as JSON string
+      allowNull: true,
+      get() {
+        const rawValue = this.getDataValue('reportingFields');
+        return rawValue ? JSON.parse(rawValue) : {};
+      },
+      set(value: any) {
+        this.setDataValue('reportingFields', JSON.stringify(value));
+      }
+    },
+    subprojectId: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      references: {
+        model: "subprojects",
+        key: "id"
+      }
+    },
     status: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -48,22 +74,14 @@ Project.init(
       validate: {
         isIn: [["active", "inactive"]],
       },
-    },
-    createdAt: {
-      type: DataTypes.DATE,
-      allowNull: false,
-      defaultValue: DataTypes.NOW,
-    },
-    updatedAt: {
-      type: DataTypes.DATE,
-      allowNull: false,
-      defaultValue: DataTypes.NOW,
-    },
+    }
   },
   {
     sequelize,
-    tableName: "projects",
+    modelName: "activity",
+    tableName: "activities",
+    timestamps: true,
   }
 );
 
-export default Project;
+export default Activity;

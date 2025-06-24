@@ -1,8 +1,9 @@
 import { Router, Request, Response } from "express";
-import projectsController from "../controllers/projects/index";
-import { authenticate, authorize } from "../middlewares/auth";
-import roles, { ROLES } from "../constants/roles";
-import loggerMiddleware from "../middlewares/logger";
+import activitiesController from "../../controllers/activities/index";
+import { authenticate, authorize } from "../../middlewares/auth";
+import roles, { ROLES } from "../../constants/roles";
+import loggerMiddleware from "../../middlewares/logger";
+import assignmentsController from "../../controllers/assignments/assignments";
 
 const router = Router();
 
@@ -12,55 +13,69 @@ router.use(loggerMiddleware);
  * @swagger
  * components:
  *   schemas:
- *     Project:
+ *     Activity:
  *       type: object
  *       required:
  *         - name
+ *         - subprojectId
  *       properties:
  *         id:
  *           type: string
  *           format: uuid
- *           description: The auto-generated UUID of the project
+ *           description: The auto-generated UUID of the activity
  *         name:
  *           type: string
- *           description: The name of the project
+ *           description: The name of the activity
  *         description:
  *           type: string
- *           description: Project description
+ *           description: Activity description
  *         category:
  *           type: string
- *           description: Project category
+ *           description: Activity category
+ *         frequency:
+ *           type: string
+ *           description: How often the activity occurs (daily, weekly, monthly, etc.)
+ *         reportingFields:
+ *           type: object
+ *           description: JSON structure defining the reporting fields for this activity
  *         status:
  *           type: string
  *           enum: [active, inactive]
- *           description: Project status
+ *           description: Activity status
+ *         subprojectId:
+ *           type: string
+ *           format: uuid
+ *           description: The ID of the parent subproject
  *         createdAt:
  *           type: string
  *           format: date-time
- *           description: Date when project was created
+ *           description: Date when activity was created
  *         updatedAt:
  *           type: string
  *           format: date-time
- *           description: Date when project was last updated
+ *           description: Date when activity was last updated
  *       example:
  *         id: 550e8400-e29b-41d4-a716-446655440000
- *         name: Food Distribution Project
- *         description: A project to distribute food to the needy
+ *         name: Food Distribution Activity
+ *         description: A weekly food distribution activity
  *         category: Food Aid
+ *         frequency: weekly
+ *         reportingFields: {"beneficiaries": "number", "foodQuantity": "number", "location": "text"}
  *         status: active
+ *         subprojectId: 550e8400-e29b-41d4-a716-446655440001
  *         createdAt: '2023-01-01T17:32:28Z'
  *         updatedAt: '2023-01-01T17:32:28Z'
  */
 
 /**
  * @swagger
- * /projects:
+ * /activities:
  *   get:
- *     summary: Get all projects
- *     tags: [Projects]
+ *     summary: Get all activities
+ *     tags: [Activities]
  *     responses:
  *       200:
- *         description: List of all projects
+ *         description: List of all activities
  *         content:
  *           application/json:
  *             schema:
@@ -72,28 +87,28 @@ router.use(loggerMiddleware);
  *                 data:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/Project'
+ *                     $ref: '#/components/schemas/Activity'
  */
 router.get("/", authenticate, (req: Request, res: Response): void => {
-  projectsController.getAllProjects(req, res);
+  activitiesController.getAllActivities(req, res);
 });
 
 /**
  * @swagger
- * /projects/{id}:
+ * /activities/{id}:
  *   get:
- *     summary: Get project by ID
- *     tags: [Projects]
+ *     summary: Get activity by ID
+ *     tags: [Activities]
  *     parameters:
  *       - in: path
  *         name: id
  *         schema:
  *           type: string
  *         required: true
- *         description: The project ID
+ *         description: The activity ID
  *     responses:
  *       200:
- *         description: Project details by ID
+ *         description: Activity details by ID
  *         content:
  *           application/json:
  *             schema:
@@ -103,21 +118,55 @@ router.get("/", authenticate, (req: Request, res: Response): void => {
  *                   type: boolean
  *                   example: true
  *                 data:
- *                   $ref: '#/components/schemas/Project'
+ *                   $ref: '#/components/schemas/Activity'
  *       404:
- *         description: Project not found
+ *         description: Activity not found
  */
-
 router.get("/:id", authenticate, (req: Request, res: Response): void => {
-  projectsController.getProjectById(req, res);
+  activitiesController.getActivityById(req, res);
 });
 
 /**
  * @swagger
- * /projects:
+ * /subprojects/{subprojectId}/activities:
+ *   get:
+ *     summary: Get all activities for a subproject
+ *     tags: [Activities]
+ *     parameters:
+ *       - in: path
+ *         name: subprojectId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The subproject ID
+ *     responses:
+ *       200:
+ *         description: List of activities for the subproject
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Activity'
+ *       404:
+ *         description: Subproject not found
+ */
+router.get("/subproject/:subprojectId", authenticate, (req: Request, res: Response): void => {
+  activitiesController.getActivitiesBySubprojectId(req, res);
+});
+
+/**
+ * @swagger
+ * /activities:
  *   post:
- *     summary: Create a new project
- *     tags: [Projects]
+ *     summary: Create a new activity
+ *     tags: [Activities]
  *     requestBody:
  *       required: true
  *       content:
@@ -126,6 +175,7 @@ router.get("/:id", authenticate, (req: Request, res: Response): void => {
  *             type: object
  *             required:
  *               - name
+ *               - subprojectId
  *             properties:
  *               name:
  *                 type: string
@@ -133,12 +183,19 @@ router.get("/:id", authenticate, (req: Request, res: Response): void => {
  *                 type: string
  *               category:
  *                 type: string
+ *               frequency:
+ *                 type: string
+ *               reportingFields:
+ *                 type: object
  *               status:
  *                 type: string
  *                 enum: [active, inactive]
+ *               subprojectId:
+ *                 type: string
+ *                 format: uuid
  *     responses:
  *       201:
- *         description: Project created successfully
+ *         description: Activity created successfully
  *         content:
  *           application/json:
  *             schema:
@@ -149,9 +206,9 @@ router.get("/:id", authenticate, (req: Request, res: Response): void => {
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Project created successfully
+ *                   example: Activity created successfully
  *                 data:
- *                   $ref: '#/components/schemas/Project'
+ *                   $ref: '#/components/schemas/Activity'
  *       400:
  *         description: Invalid parameters
  */
@@ -160,23 +217,23 @@ router.post(
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
-    projectsController.createProject(req, res);
+    activitiesController.createActivity(req, res);
   }
 );
 
 /**
  * @swagger
- * /projects/{id}:
+ * /activities/{id}:
  *   put:
- *     summary: Update a project
- *     tags: [Projects]
+ *     summary: Update an activity
+ *     tags: [Activities]
  *     parameters:
  *       - in: path
  *         name: id
  *         schema:
  *           type: string
  *         required: true
- *         description: The project ID
+ *         description: The activity ID
  *     requestBody:
  *       required: true
  *       content:
@@ -190,12 +247,16 @@ router.post(
  *                 type: string
  *               category:
  *                 type: string
+ *               frequency:
+ *                 type: string
+ *               reportingFields:
+ *                 type: object
  *               status:
  *                 type: string
  *                 enum: [active, inactive]
  *     responses:
  *       200:
- *         description: Project updated successfully
+ *         description: Activity updated successfully
  *         content:
  *           application/json:
  *             schema:
@@ -206,38 +267,37 @@ router.post(
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Project updated successfully
+ *                   example: Activity updated successfully
  *                 data:
- *                   $ref: '#/components/schemas/Project'
+ *                   $ref: '#/components/schemas/Activity'
  *       404:
- *         description: Project not found
+ *         description: Activity not found
  */
-
 router.put(
   "/:id",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
-    projectsController.updateProject(req, res);
+    activitiesController.updateActivity(req, res);
   }
 );
 
 /**
  * @swagger
- * /projects/{id}:
+ * /activities/{id}:
  *   delete:
- *     summary: Delete a project
- *     tags: [Projects]
+ *     summary: Delete an activity
+ *     tags: [Activities]
  *     parameters:
  *       - in: path
  *         name: id
  *         schema:
  *           type: string
  *         required: true
- *         description: The project ID
+ *         description: The activity ID
  *     responses:
  *       200:
- *         description: Project deleted successfully
+ *         description: Activity deleted successfully
  *         content:
  *           application/json:
  *             schema:
@@ -248,60 +308,59 @@ router.put(
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Project deleted successfully
+ *                   example: Activity deleted successfully
  *       404:
- *         description: Project not found
+ *         description: Activity not found
  */
-
 router.delete(
   "/:id",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
-    projectsController.deleteProject(req, res);
+    activitiesController.deleteActivity(req, res);
   }
 );
 
 /**
  * @swagger
- * /projects/{projectId}/users:
+ * /activities/{activityId}/users:
  *   get:
- *     summary: Get all users assigned to a project
- *     tags: [Projects]
+ *     summary: Get all users assigned to an activity
+ *     tags: [Activities]
  *     parameters:
  *       - in: path
- *         name: projectId
+ *         name: activityId
  *         schema:
  *           type: string
  *         required: true
- *         description: The project ID
+ *         description: The activity ID
  *     responses:
  *       200:
- *         description: List of users assigned to the project
+ *         description: List of users assigned to the activity
  *       404:
- *         description: Project not found
+ *         description: Activity not found
  */
 router.get(
-  "/:projectId/users",
+  "/:activityId/users",
   authenticate,
   (req: Request, res: Response): void => {
-    projectsController.assignments.getProjectUsers(req, res);
+    assignmentsController.getActivityUsers(req, res);
   }
 );
 
 /**
  * @swagger
- * /projects/{projectId}/users:
+ * /activities/{activityId}/users:
  *   post:
- *     summary: Assign a user to a project
- *     tags: [Projects]
+ *     summary: Assign a user to an activity
+ *     tags: [Activities]
  *     parameters:
  *       - in: path
- *         name: projectId
+ *         name: activityId
  *         schema:
  *           type: string
  *         required: true
- *         description: The project ID
+ *         description: The activity ID
  *     requestBody:
  *       required: true
  *       content:
@@ -316,34 +375,34 @@ router.get(
  *                 description: The user ID to assign
  *     responses:
  *       201:
- *         description: User assigned to project successfully
+ *         description: User assigned to activity successfully
  *       400:
  *         description: Invalid parameters or user already assigned
  *       404:
- *         description: Project or user not found
+ *         description: Activity or user not found
  */
 router.post(
-  "/:projectId/users",
+  "/:activityId/users",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
-    projectsController.assignments.assignUserToProject(req, res);
+    assignmentsController.assignUserToActivity(req, res);
   }
 );
 
 /**
  * @swagger
- * /projects/{projectId}/users/{userId}:
+ * /activities/{activityId}/users/{userId}:
  *   delete:
- *     summary: Remove a user from a project
- *     tags: [Projects]
+ *     summary: Remove a user from an activity
+ *     tags: [Activities]
  *     parameters:
  *       - in: path
- *         name: projectId
+ *         name: activityId
  *         schema:
  *           type: string
  *         required: true
- *         description: The project ID
+ *         description: The activity ID
  *       - in: path
  *         name: userId
  *         schema:
@@ -352,16 +411,16 @@ router.post(
  *         description: The user ID
  *     responses:
  *       200:
- *         description: User removed from project successfully
+ *         description: User removed from activity successfully
  *       404:
- *         description: User not assigned to this project
+ *         description: User not assigned to this activity
  */
 router.delete(
-  "/:projectId/users/:userId",
+  "/:activityId/users/:userId",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
-    projectsController.assignments.removeUserFromProject(req, res);
+    assignmentsController.removeUserFromActivity(req, res);
   }
 );
 

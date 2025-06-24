@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { Project } from "../../models";
 import { v4 as uuidv4 } from "uuid";
 import { Op } from "sequelize";
-import assignmentsController from "./assignments";
+import assignmentsController from "../assignments/assignments";
 
 /**
  * Get all projects
