@@ -1,10 +1,12 @@
 import express, { Router } from "express";
 import { healthController } from "../controllers/health";
 // Import routers
-import usersRouter from "./users";
-import authRouter from "./auth";
-import logsRouter from "./logs";
-import projectsRouter from "./projects";
+import usersRouter from "./userRoutes/users";
+import authRouter from "./auth/auth";
+import logsRouter from "./logs/logs";
+import projectsRouter from "./projects/projects";
+import subprojectsRouter from "./projects/subprojects";
+import activitiesRouter from "./projects/activities";
 import loggerMiddleware from "../middlewares/logger";
 
 const router = Router();
@@ -53,5 +55,11 @@ router.use("/logs", logsRouter);
 
 // Projects routes
 router.use("/projects", projectsRouter);
+
+// Subprojects routes
+router.use("/subprojects", subprojectsRouter);
+
+// Activities routes
+router.use("/activities", activitiesRouter);
 
 export default router;

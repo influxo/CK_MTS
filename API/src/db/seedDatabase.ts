@@ -22,3 +22,15 @@ export async function seedDatabase() {
 
 // Export the function to be called explicitly
 // Don't run automatically to prevent duplicate execution
+
+// Execute the seedDatabase function if this file is run directly
+if (require.main === module) {
+  seedDatabase()
+    .then(() => {
+      console.log('All seeds executed successfully');
+    })
+    .catch((error) => {
+      console.error('Error during seeding:', error);
+      process.exit(1);
+    });
+}

@@ -2,14 +2,17 @@ import { Model, DataTypes, HasManyGetAssociationsMixin, HasManyAddAssociationMix
 import sequelize from "../db/connection";
 import { v4 as uuidv4 } from "uuid";
 import User from "./User";
+import Project from "./Project";
+import Activity from "./Activity";
 
-class Project extends Model {
+class Subproject extends Model {
   // Define attributes
   public id!: string;
   public name!: string;
   public description!: string;
   public category!: string;
   public status!: string; // 'active', 'inactive'
+  public projectId!: string; // Foreign key to parent Project
 
   // Timestamps
   public readonly createdAt!: Date;
@@ -20,9 +23,15 @@ class Project extends Model {
   public getMembers!: HasManyGetAssociationsMixin<User>;
   public addMember!: HasManyAddAssociationMixin<User, string>;
   public removeMember!: HasManyRemoveAssociationMixin<User, string>;
+  
+  // Activities association
+  public readonly activities?: Activity[];
+  public getActivities!: HasManyGetAssociationsMixin<Activity>;
+  public addActivity!: HasManyAddAssociationMixin<Activity, string>;
+  public removeActivity!: HasManyRemoveAssociationMixin<Activity, string>;
 }
 
-Project.init(
+Subproject.init(
   {
     id: {
       type: DataTypes.UUID,
@@ -49,21 +58,21 @@ Project.init(
         isIn: [["active", "inactive"]],
       },
     },
-    createdAt: {
-      type: DataTypes.DATE,
+    projectId: {
+      type: DataTypes.UUID,
       allowNull: false,
-      defaultValue: DataTypes.NOW,
-    },
-    updatedAt: {
-      type: DataTypes.DATE,
-      allowNull: false,
-      defaultValue: DataTypes.NOW,
-    },
+      references: {
+        model: "projects",
+        key: "id"
+      }
+    }
   },
   {
     sequelize,
-    tableName: "projects",
+    modelName: "subproject",
+    tableName: "subprojects",
+    timestamps: true,
   }
 );
 
-export default Project;
+export default Subproject;

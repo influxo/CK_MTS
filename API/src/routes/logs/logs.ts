@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import logsController from '../controllers/logs';
-import { authenticate, authorize } from '../middlewares/auth';
-import loggerMiddleware from '../middlewares/logger';
-import { ROLES } from '../constants/roles';
+import logsController from '../../controllers/logs';
+import { authenticate, authorize } from '../../middlewares/auth';
+import loggerMiddleware from '../../middlewares/logger';
+import { ROLES } from '../../constants/roles';
 
 const router = Router();
 
