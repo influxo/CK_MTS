@@ -4,12 +4,14 @@ export const generateInvitationEmail = ({
   email,
   expiration,
   inviteLink,
+  message,
 }: {
   firstName: string;
   lastName: string;
   email: string;
   expiration: string;
   inviteLink: string;
+  message: string;
 }) => `
     <!DOCTYPE html>
     <html>
@@ -32,7 +34,9 @@ export const generateInvitationEmail = ({
               <p style="font-size: 14px; margin-bottom: 15px;">
                 You’ve been invited to join <strong>CaritasMotherTeresa</strong>. Click the button below to accept the invitation and set up your account.
               </p>
-  
+              <p style="font-size: 12px; color:rgb(9, 9, 9);">
+                ${message}
+              </p>
               <div style="background-color: #f3f4f6; padding: 15px; border-radius: 6px; font-size: 14px; margin-bottom: 20px;">
                 <p style="margin: 0;">Accept your invitation by clicking the button below.</p>
               </div>

@@ -17,12 +17,14 @@ export const sendInvitationEmail = async ({
   email,
   expiration,
   inviteLink,
+  message,
 }: {
   firstName: string;
   lastName: string;
   email: string;
   expiration: string;
   inviteLink: string;
+  message: string;
 }) => {
   const html = generateInvitationEmail({
     firstName,
@@ -30,6 +32,7 @@ export const sendInvitationEmail = async ({
     email,
     expiration,
     inviteLink,
+    message,
   });
 
   await transporter.sendMail({
