@@ -1,0 +1,54 @@
+export const generateInvitationEmail = ({
+  firstName,
+  lastName,
+  email,
+  expiration,
+  inviteLink,
+}: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  expiration: string;
+  inviteLink: string;
+}) => `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Invitation to CaritasMotherTeresa</title>
+      </head>
+      <body style="font-family: sans-serif; background-color: #f9fafb; padding: 20px;">
+        <table style="max-width: 600px; margin: auto; background: #ffffff; border-radius: 8px; padding: 20px;">
+          <tr>
+            <td>
+              <h2 style="margin-bottom: 10px;">Invitation to CaritasMotherTeresa</h2>
+              <hr style="margin: 20px 0;" />
+              <div style="margin-bottom: 20px; display: flex; align-items: center;">
+                <div>
+                  <strong>${firstName} ${lastName}</strong> (<a href="mailto:${email}">${email}</a>)
+                </div>
+              </div>
+  
+              <p style="font-size: 14px; margin-bottom: 15px;">
+                You’ve been invited to join <strong>CaritasMotherTeresa</strong>. Click the button below to accept the invitation and set up your account.
+              </p>
+  
+              <div style="background-color: #f3f4f6; padding: 15px; border-radius: 6px; font-size: 14px; margin-bottom: 20px;">
+                <p style="margin: 0;">Accept your invitation by clicking the button below.</p>
+              </div>
+  
+              <div style="text-align: center; margin-bottom: 20px;">
+                <a href="${inviteLink}" style="display: inline-block; background-color: #2563eb; color: #fff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-size: 14px;">
+                  Accept Invitation
+                </a>
+              </div>
+  
+              <p style="font-size: 12px; color: #9ca3af;">
+                This invitation will expire on <strong>${expiration}</strong>.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+  `;
