@@ -3,20 +3,26 @@ import { Project } from "../../models";
 import { v4 as uuidv4 } from "uuid";
 import { Op } from "sequelize";
 import assignmentsController from "../assignments/assignments";
+import { createLogger } from "../../utils/logger";
+
+// Create a logger instance for this module
+const logger = createLogger('projects-controller');
 
 /**
  * Get all projects
  */
 export const getAllProjects = async (req: Request, res: Response) => {
+  logger.info('Getting all projects');
   try {
     const projects = await Project.findAll();
 
+    logger.info('Successfully retrieved all projects', { count: projects.length });
     return res.status(200).json({
       success: true,
       data: projects,
     });
   } catch (error) {
-    console.error("Error fetching projects:", error);
+    logger.error('Error fetching projects', error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -28,24 +34,27 @@ export const getAllProjects = async (req: Request, res: Response) => {
  * Get project by ID
  */
 export const getProjectById = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  logger.info('Getting project by ID', { projectId: id });
+  
   try {
-    const { id } = req.params;
-
     const project = await Project.findByPk(id);
 
     if (!project) {
+      logger.warn('Project not found', { projectId: id });
       return res.status(404).json({
         success: false,
         message: "Project not found",
       });
     }
 
+    logger.info('Successfully retrieved project', { projectId: id });
     return res.status(200).json({
       success: true,
       data: project,
     });
   } catch (error) {
-    console.error("Error fetching project:", error);
+    logger.error(`Error fetching project with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -57,11 +66,14 @@ export const getProjectById = async (req: Request, res: Response) => {
  * Create a new project
  */
 export const createProject = async (req: Request, res: Response) => {
+  logger.info('Creating new project', { projectName: req.body.name });
+  
   try {
     const { name, description, category, status } = req.body;
 
     // Validate required fields
     if (!name) {
+      logger.warn('Missing project name for creation');
       return res.status(400).json({
         success: false,
         message: "Project name is required",
@@ -69,6 +81,7 @@ export const createProject = async (req: Request, res: Response) => {
     }
 
     // Create project
+    logger.info('Creating project record', { name, category });
     const project = await Project.create({
       id: uuidv4(),
       name,
@@ -77,13 +90,14 @@ export const createProject = async (req: Request, res: Response) => {
       status: status || "active",
     });
 
+    logger.info('Project created successfully', { projectId: project.id });
     return res.status(201).json({
       success: true,
       message: "Project created successfully",
       data: project,
     });
   } catch (error: any) {
-    console.error("Error creating project:", error);
+    logger.error('Error creating project', error);
     return res.status(500).json({
       success: false,
       message: "Error creating project",
@@ -96,13 +110,16 @@ export const createProject = async (req: Request, res: Response) => {
  * Update an existing project
  */
 export const updateProject = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  logger.info('Updating project', { projectId: id });
+  
   try {
-    const { id } = req.params;
     const { name, description, category, status } = req.body;
 
     // Find project
     const project = await Project.findByPk(id);
     if (!project) {
+      logger.warn('Project not found for update', { projectId: id });
       return res.status(404).json({
         success: false,
         message: "Project not found",
@@ -118,6 +135,7 @@ export const updateProject = async (req: Request, res: Response) => {
     if (status !== undefined) {
       // Validate status
       if (!["active", "inactive"].includes(status)) {
+        logger.warn('Invalid status provided for project update', { projectId: id, status });
         return res.status(400).json({
           success: false,
           message: 'Status must be either "active" or "inactive"',
@@ -126,15 +144,17 @@ export const updateProject = async (req: Request, res: Response) => {
       updateData.status = status;
     }
 
+    logger.info('Updating project data', { projectId: id, fields: Object.keys(updateData) });
     await project.update(updateData);
 
+    logger.info('Project updated successfully', { projectId: id });
     return res.status(200).json({
       success: true,
       message: "Project updated successfully",
       data: project,
     });
   } catch (error) {
-    console.error("Error updating project:", error);
+    logger.error(`Error updating project with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -146,12 +166,14 @@ export const updateProject = async (req: Request, res: Response) => {
  * Delete a project
  */
 export const deleteProject = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  logger.info('Deleting project', { projectId: id });
+  
   try {
-    const { id } = req.params;
-
     // Find project
     const project = await Project.findByPk(id);
     if (!project) {
+      logger.warn('Project not found for deletion', { projectId: id });
       return res.status(404).json({
         success: false,
         message: "Project not found",
@@ -159,14 +181,16 @@ export const deleteProject = async (req: Request, res: Response) => {
     }
 
     // Delete project
+    logger.info('Deleting project record', { projectId: id });
     await project.destroy();
 
+    logger.info('Project deleted successfully', { projectId: id });
     return res.status(200).json({
       success: true,
       message: "Project deleted successfully",
     });
   } catch (error) {
-    console.error("Error deleting project:", error);
+    logger.error(`Error deleting project with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
