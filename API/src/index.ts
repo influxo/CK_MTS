@@ -15,8 +15,8 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '2mb' })); // Set 2MB limit for JSON payloads
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // Request logging middleware
 app.use(loggerMiddleware);

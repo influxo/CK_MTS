@@ -7,6 +7,7 @@ import logsRouter from "./logs/logs";
 import projectsRouter from "./projects/projects";
 import subprojectsRouter from "./projects/subprojects";
 import activitiesRouter from "./projects/activities";
+import formsRouter from "./forms";
 import loggerMiddleware from "../middlewares/logger";
 
 const router = Router();
@@ -61,5 +62,8 @@ router.use("/subprojects", subprojectsRouter);
 
 // Activities routes
 router.use("/activities", activitiesRouter);
+
+// Forms routes
+router.use("/forms", formsRouter);
 
 export default router;
