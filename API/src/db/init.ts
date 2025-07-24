@@ -1,5 +1,5 @@
-  import sequelize from './connection';
-  import { User } from '../models';
+import sequelize from './connection';
+import { User, Role, Permission, UserRole, RolePermission, Log, Project, ProjectUser, Subproject, SubprojectUser, Activity, ActivityUser, FormTemplate, FormResponse, AuditLog } from '../models';
 
 const initDatabase = async () => {
   try {

@@ -10,6 +10,9 @@ import Subproject from "./Subproject";
 import SubprojectUser from "./SubprojectUser";
 import Activity from "./Activity";
 import ActivityUser from "./ActivityUser";
+import FormTemplate from "./FormTemplate";
+import FormResponse from "./FormResponse";
+import AuditLog from "./AuditLog";
 
 // Set up associations
 
@@ -120,6 +123,36 @@ ActivityUser.belongsTo(Activity, {
   as: "activity"
 });
 
+// Project-FormTemplate associations
+Project.hasMany(FormTemplate, {
+  foreignKey: "programId",
+  as: "formTemplates"
+});
+FormTemplate.belongsTo(Project, {
+  foreignKey: "programId",
+  as: "program"
+});
+
+// FormTemplate-FormResponse associations
+FormTemplate.hasMany(FormResponse, {
+  foreignKey: "formTemplateId",
+  as: "responses"
+});
+FormResponse.belongsTo(FormTemplate, {
+  foreignKey: "formTemplateId",
+  as: "template"
+});
+
+// FormResponse-User associations
+User.hasMany(FormResponse, {
+  foreignKey: "submittedBy",
+  as: "formResponses"
+});
+FormResponse.belongsTo(User, {
+  foreignKey: "submittedBy",
+  as: "submitter"
+});
+
 // Export models
 export { 
   User, 
@@ -133,5 +166,8 @@ export {
   Subproject, 
   SubprojectUser,
   Activity,
-  ActivityUser
+  ActivityUser,
+  FormTemplate,
+  FormResponse,
+  AuditLog
 };
