@@ -123,10 +123,23 @@ router.use(loggerMiddleware);
  *               name:
  *                 type: string
  *                 description: Name of the form template
- *               programId:
- *                 type: string
- *                 format: uuid
- *                 description: ID of the program or subproject this form belongs to
+ *               entities:
+ *                 type: array
+ *                 description: Array of entities (projects, subprojects, activities) this form is associated with
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - id
+ *                     - type
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       description: ID of the entity (project, subproject, or activity)
+ *                     type:
+ *                       type: string
+ *                       enum: [project, subproject, activity]
+ *                       description: Type of entity
  *               schema:
  *                 type: object
  *                 description: Form schema definition
@@ -267,23 +280,58 @@ router.get(
  * @swagger
  * /forms/templates:
  *   get:
- *     summary: Get all form templates for a program
+ *     summary: Get form templates by entity (project, subproject, activity) with flexible filtering
  *     tags: [Forms]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
- *         name: programId
+ *         name: projectId
  *         schema:
  *           type: string
  *           format: uuid
- *         required: true
- *         description: The program/subproject ID
+ *         required: false
+ *         description: Filter templates by project ID
+ *       - in: query
+ *         name: subprojectId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter templates by subproject ID
+ *       - in: query
+ *         name: activityId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter templates by activity ID
+ *       - in: query
+ *         name: entityType
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Filter by entity types (comma-separated values of 'project', 'subproject', 'activity')
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         required: false
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         required: false
+ *         description: Number of items per page
  *     responses:
  *       200:
  *         description: List of form templates
- *       400:
- *         description: Missing program ID parameter
  *       401:
  *         description: Unauthorized
  *       403:
@@ -293,7 +341,7 @@ router.get(
   "/templates",
   authenticate,
   (req: Request, res: Response): void => {
-    formsController.templates.getFormTemplatesByProgram(req, res);
+    formsController.templates.getFormTemplatesByEntity(req, res);
   }
 );
 
@@ -319,7 +367,28 @@ router.get(
  *         application/json:
  *           schema:
  *             type: object
- *             description: Form response data matching the template schema
+ *             required:
+ *               - entityId
+ *               - entityType
+ *               - data
+ *             properties:
+ *               entityId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: ID of the entity (project, subproject, or activity) this response is associated with
+ *               entityType:
+ *                 type: string
+ *                 enum: [project, subproject, activity]
+ *                 description: Type of entity this response is associated with
+ *               data:
+ *                 type: object
+ *                 description: Form response data matching the template schema
+ *               latitude:
+ *                 type: number
+ *                 description: Optional latitude where the form was submitted
+ *               longitude:
+ *                 type: number
+ *                 description: Optional longitude where the form was submitted
  *     responses:
  *       201:
  *         description: Form response submitted successfully

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { FormTemplate, FormResponse, User, AuditLog } from "../../models";
+import FormEntityAssociation from "../../models/FormEntityAssociation";
 import { v4 as uuidv4 } from "uuid";
 import { createLogger } from "../../utils/logger";
 import { Op } from "sequelize";
@@ -19,21 +20,48 @@ export const submitFormResponse = async (req: Request, res: Response) => {
   try {
     // Use transaction for atomicity
     const result = await sequelize.transaction(async (transaction) => {
-      // Find the template
-      const template = await FormTemplate.findByPk(id, { transaction });
+      // Find the template with its entity associations
+      const template = await FormTemplate.findByPk(id, {
+        include: [{
+          model: FormEntityAssociation,
+          as: 'entityAssociations'
+        }],
+        transaction
+      });
+      
       if (!template) {
         logger.warn('Form template not found', { templateId: id });
         return { success: false, status: 404, message: "Form template not found" };
       }
-
-      // Verify user has access to this template's program if req.user.allowedProgramIds exists
-      if (req.user && req.user.allowedProgramIds && 
-          !req.user.allowedProgramIds.includes(template.programId)) {
-        logger.warn('User does not have access to program', { 
-          userId: req.user.id, 
-          programId: template.programId
+      
+      // Get the entity ID and type from the request or use the first associated entity
+      const { entityId, entityType } = req.body;
+      
+      if (!entityId || !entityType) {
+        logger.warn('Missing entityId or entityType in request', { templateId: id });
+        return { success: false, status: 400, message: "entityId and entityType are required" };
+      }
+      
+      // Check if the entity is associated with this template
+      const entityAssociation = template.entityAssociations?.find(ea => 
+        ea.entityId === entityId && ea.entityType === entityType
+      );
+      
+      if (!entityAssociation) {
+        logger.warn('Entity not associated with this template', { 
+          templateId: id, entityId, entityType 
         });
-        return { success: false, status: 403, message: "You do not have access to this program" };
+        return { success: false, status: 400, message: "This entity is not associated with this form template" };
+      }
+
+      // Verify user has access to this entity if req.user.allowedProgramIds exists
+      if (req.user && req.user.allowedProgramIds && 
+          !req.user.allowedProgramIds.includes(entityId)) {
+        logger.warn('User does not have access to entity', { 
+          userId: req.user.id, 
+          entityId
+        });
+        return { success: false, status: 403, message: "You do not have access to this entity" };
       }
 
       const data = req.body.data || req.body;
@@ -56,12 +84,13 @@ export const submitFormResponse = async (req: Request, res: Response) => {
       const formResponse = await FormResponse.create({
         id: uuidv4(),
         formTemplateId: id,
-        programId: template.programId,
+        entityId,
+        entityType,
         submittedBy: req.user.id,
-        data: validationResult.data, // Use sanitized data
-        latitude: latitude ? parseFloat(latitude) : null,
-        longitude: longitude ? parseFloat(longitude) : null,
-        submittedAt: new Date(),
+        data: validationResult.data,
+        latitude,
+        longitude,
+        submittedAt: new Date()
       }, { transaction });
 
       // Create audit log entry
@@ -69,11 +98,12 @@ export const submitFormResponse = async (req: Request, res: Response) => {
         id: uuidv4(),
         userId: req.user.id,
         action: 'FORM_RESPONSE_SUBMIT',
-        description: `Submitted response to form '${template.name}'`,
+        description: `Submitted response to form '${template.name}' for ${entityType} with ID ${entityId}`,
         details: JSON.stringify({
           templateId: id,
           responseId: formResponse.id,
-          programId: template.programId,
+          entityId,
+          entityType,
           version: template.version
         }),
         timestamp: new Date()
@@ -84,7 +114,8 @@ export const submitFormResponse = async (req: Request, res: Response) => {
         responseId: formResponse.id, 
         templateId: id, 
         userId: req.user.id,
-        programId: template.programId
+        entityId,
+        entityType
       });
 
       return { 
@@ -134,8 +165,14 @@ export const getFormResponses = async (req: Request, res: Response) => {
     const fromDate = req.query.fromDate ? new Date(req.query.fromDate as string) : null;
     const toDate = req.query.toDate ? new Date(req.query.toDate as string) : null;
     
-    // Find the template
-    const template = await FormTemplate.findByPk(id);
+    // Find the template with its entity associations
+    const template = await FormTemplate.findByPk(id, {
+      include: [{
+        model: FormEntityAssociation,
+        as: 'entityAssociations'
+      }]
+    });
+    
     if (!template) {
       logger.warn('Form template not found', { templateId: id });
       return res.status(404).json({
@@ -143,22 +180,68 @@ export const getFormResponses = async (req: Request, res: Response) => {
         message: "Form template not found",
       });
     }
-
-    // Verify user has access to this template's program if req.user.allowedProgramIds exists
-    if (req.user && req.user.allowedProgramIds && 
-        !req.user.allowedProgramIds.includes(template.programId)) {
-      logger.warn('User does not have access to program', { 
-        userId: req.user.id, 
-        programId: template.programId
-      });
-      return res.status(403).json({
-        success: false,
-        message: "You do not have access to this program",
-      });
+    
+    // Get the entityId and entityType from query parameters
+    const { entityId, entityType } = req.query;
+    
+    // If entityId and entityType are provided, verify they are associated with this template
+    if (entityId && entityType) {
+      const entityAssociation = template.entityAssociations?.find(ea => 
+        ea.entityId === entityId && ea.entityType === entityType
+      );
+      
+      if (!entityAssociation) {
+        logger.warn('Entity not associated with this template', { 
+          templateId: id, entityId, entityType 
+        });
+        return res.status(400).json({
+          success: false,
+          message: "This entity is not associated with this form template"
+        });
+      }
+      
+      // Verify user has access to this entity if req.user.allowedProgramIds exists
+      if (req.user && req.user.allowedProgramIds && 
+          !req.user.allowedProgramIds.includes(entityId as string)) {
+        logger.warn('User does not have access to entity', { 
+          userId: req.user.id, 
+          entityId 
+        });
+        return res.status(403).json({
+          success: false,
+          message: "You do not have access to this entity"
+        });
+      }
+    } else {
+      // If no specific entity is requested, verify user has access to at least one of the associated entities
+      if (req.user && req.user.allowedProgramIds && template.entityAssociations) {
+        const hasAccess = template.entityAssociations.some(ea => 
+          req.user.allowedProgramIds!.includes(ea.entityId)
+        );
+        
+        if (!hasAccess) {
+          logger.warn('User does not have access to any entities associated with this template', { 
+            userId: req.user.id, 
+            templateId: id 
+          });
+          return res.status(403).json({
+            success: false,
+            message: "You do not have access to any entities associated with this form template"
+          });
+        }
+      }
     }
     
     // Build where clause based on filters
     const whereClause: any = { formTemplateId: id };
+    
+    // Add entity filters if provided
+    if (entityId && entityType) {
+      whereClause.entityId = entityId;
+      whereClause.entityType = entityType;
+    }
+    
+    // Add date filters if provided
     if (fromDate && toDate) {
       whereClause.submittedAt = {
         [Op.between]: [fromDate, toDate]
