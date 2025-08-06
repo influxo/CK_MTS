@@ -3,7 +3,7 @@ import subprojectsController from "../../controllers/subprojects/index";
 import { authenticate, authorize } from "../../middlewares/auth";
 import roles, { ROLES } from "../../constants/roles";
 import loggerMiddleware from "../../middlewares/logger";
-import assignmentsController from "../../controllers/assignments/assignments"; 
+import assignmentsController from "../../controllers/assignments/assignments";
 const router = Router();
 
 router.use(loggerMiddleware);
@@ -119,7 +119,7 @@ router.get("/:id", authenticate, (req: Request, res: Response): void => {
 
 /**
  * @swagger
- * /projects/{projectId}/subprojects:
+ * /subprojects/project/{projectId}:
  *   get:
  *     summary: Get all subprojects for a project
  *     tags: [Subprojects]
@@ -148,9 +148,14 @@ router.get("/:id", authenticate, (req: Request, res: Response): void => {
  *       404:
  *         description: Project not found
  */
-router.get("/project/:projectId", authenticate, (req: Request, res: Response): void => {
-  subprojectsController.getSubprojectsByProjectId(req, res);
-});
+router.get(
+  "/project/:projectId",
+  authenticate,
+  (req: Request, res: Response): void => {
+    subprojectsController.getSubprojectsByProjectId(req, res);
+    console.log("TEST TEST TEST TESST");
+  }
+);
 
 /**
  * @swagger
@@ -202,7 +207,11 @@ router.get("/project/:projectId", authenticate, (req: Request, res: Response): v
 router.post(
   "/",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  authorize([
+    ROLES.SUPER_ADMIN,
+    ROLES.SYSTEM_ADMINISTRATOR,
+    ROLES.PROGRAM_MANAGER,
+  ]),
   (req: Request, res: Response): void => {
     subprojectsController.createSubproject(req, res);
   }
@@ -259,7 +268,11 @@ router.post(
 router.put(
   "/:id",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  authorize([
+    ROLES.SUPER_ADMIN,
+    ROLES.SYSTEM_ADMINISTRATOR,
+    ROLES.PROGRAM_MANAGER,
+  ]),
   (req: Request, res: Response): void => {
     subprojectsController.updateSubproject(req, res);
   }
