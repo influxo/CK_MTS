@@ -1,13 +1,13 @@
-import { Model, DataTypes } from "sequelize";
+import { Model, DataTypes, HasManyCreateAssociationMixin } from "sequelize";
 import sequelize from "../db/connection";
 import { v4 as uuidv4 } from "uuid";
 import { JSONSchema7 } from "json-schema";
+import FormEntityAssociation from "./FormEntityAssociation";
 
 class FormTemplate extends Model {
   // Define attributes
   public id!: string;
   public name!: string;
-  public programId!: string; // foreign key to programs or sub-projects
   public schema!: any; // JSONB field storing form structure
   public version!: number;
 
@@ -15,6 +15,12 @@ class FormTemplate extends Model {
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
   public readonly deletedAt!: Date | null;
+  
+  // Associations
+  public readonly entityAssociations?: FormEntityAssociation[];
+  
+  // Association methods
+  public createEntityAssociation!: HasManyCreateAssociationMixin<FormEntityAssociation>;
   
   /**
    * Generates a JSON Schema (draft-07) from the form template schema
@@ -86,10 +92,7 @@ FormTemplate.init(
       type: DataTypes.STRING,
       allowNull: false,
     },
-    programId: {
-      type: DataTypes.UUID,
-      allowNull: false,
-    },
+
     schema: {
       type: DataTypes.JSONB,
       allowNull: false,
@@ -141,5 +144,17 @@ FormTemplate.init(
     paranoid: true,
   }
 );
+
+// Set up associations
+FormTemplate.hasMany(FormEntityAssociation, {
+  sourceKey: 'id',
+  foreignKey: 'formTemplateId',
+  as: 'entityAssociations'
+});
+
+FormEntityAssociation.belongsTo(FormTemplate, {
+  foreignKey: 'formTemplateId',
+  as: 'formTemplate'
+});
 
 export default FormTemplate;
