@@ -13,6 +13,8 @@ import ActivityUser from "./ActivityUser";
 import FormTemplate from "./FormTemplate";
 import FormResponse from "./FormResponse";
 import AuditLog from "./AuditLog";
+import FormField from "./FormField";
+import Kpi from "./Kpi";
 
 // Set up associations
 
@@ -153,6 +155,16 @@ FormResponse.belongsTo(User, {
   as: "submitter"
 });
 
+// FormField-Kpi associations
+FormField.hasMany(Kpi, {
+  foreignKey: "fieldId",
+  as: "kpis"
+});
+Kpi.belongsTo(FormField, {
+  foreignKey: "fieldId",
+  as: "field"
+});
+
 // Export models
 export { 
   User, 
@@ -169,5 +181,7 @@ export {
   ActivityUser,
   FormTemplate,
   FormResponse,
-  AuditLog
+  AuditLog,
+  FormField,
+  Kpi
 };

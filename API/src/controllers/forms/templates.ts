@@ -5,6 +5,7 @@ import { createLogger } from "../../utils/logger";
 import { Op } from "sequelize";
 import sequelize from "../../db/connection";
 import FormEntityAssociation from "../../models/FormEntityAssociation";
+import kpiCalculationService from "../../services/forms/kpiCalculationService";
 
 // Create a logger instance for this module
 const logger = createLogger('forms-templates-controller');
@@ -216,11 +217,14 @@ export const createFormTemplate = async (req: Request, res: Response) => {
         description: `Created form template '${name}'`,
         details: JSON.stringify({
           templateId: formTemplate.id,
-          name,
-          version: 1
+          version: 1,
+          entities: entities.map(e => ({ id: e.id, type: e.type }))
         }),
         timestamp: new Date()
       }, { transaction });
+      
+      // Register form fields for KPI calculations
+      await kpiCalculationService.registerFormFields(formTemplate);
 
       // Fetch the associations to include in the response
       const entityAssociations = await FormEntityAssociation.findAll({
@@ -417,22 +421,21 @@ export const updateFormTemplate = async (req: Request, res: Response) => {
         description: `Updated form template '${updatedTemplate!.name}'`,
         details: JSON.stringify({
           templateId: id,
+          oldVersion: template.version,
+          newVersion: newVersion,
           entityAssociations: updatedTemplate?.entityAssociations?.map(ea => ({
             entityId: ea.entityId,
             entityType: ea.entityType
           })),
-          version: newVersion,
           schemaChanged: isSchemaChanged
         }),
         timestamp: new Date()
       }, { transaction });
-
-      // Log the update for application logging
-      logger.info('Form template updated', { 
-        templateId: id, 
-        newVersion, 
-        userId: req.user.id 
-      });
+      
+      // Re-register form fields for KPI calculations
+      if (schema) {
+        await kpiCalculationService.registerFormFields({ ...template.toJSON(), schema });
+      }
 
       return { 
         success: true, 
