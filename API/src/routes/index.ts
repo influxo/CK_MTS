@@ -8,7 +8,10 @@ import projectsRouter from "./projects/projects";
 import subprojectsRouter from "./projects/subprojects";
 import activitiesRouter from "./projects/activities";
 import formsRouter from "./forms";
+import beneficiariesRouter from "./beneficiaries/beneficiaries";
 import loggerMiddleware from "../middlewares/logger";
+import rolesRouter from "./roles/roles";
+import permissionsRouter from "./permissions/permissions";
 
 const router = Router();
 
@@ -65,5 +68,14 @@ router.use("/activities", activitiesRouter);
 
 // Forms routes
 router.use("/forms", formsRouter);
+
+// Beneficiaries routes
+router.use("/beneficiaries", beneficiariesRouter);
+
+// Roles routes
+router.use("/roles", rolesRouter);
+
+// Permissions routes
+router.use("/permissions", permissionsRouter);
 
 export default router;

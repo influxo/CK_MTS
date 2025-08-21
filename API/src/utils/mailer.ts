@@ -34,11 +34,25 @@ export const sendInvitationEmail = async ({
     inviteLink,
     message,
   });
+  const text = [
+    `Invitation to CaritasMotherTeresa`,
+    ``,
+    `${firstName} ${lastName} (${email}) has been invited.`,
+    message ? `Message: ${message}` : undefined,
+    ``,
+    `Accept your invitation using this link:`,
+    inviteLink,
+    ``,
+    `This invitation will expire on ${expiration}.`,
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   await transporter.sendMail({
     from: `"CaritasMotherTeresa" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: "You’ve been invited to join CaritasMotherTeresa",
     html,
+    text,
   });
 };

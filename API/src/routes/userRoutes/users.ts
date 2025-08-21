@@ -113,7 +113,7 @@ router.get('/:id',
  *               password:
  *                 type: string
  *                 format: password
- *               roles:
+ *               roleIds:
  *                 type: array
  *                 items:
  *                   type: string
@@ -136,6 +136,46 @@ router.get('/:id',
 router.post('/', 
   (req: Request, res: Response): void => {
     usersController.createUser(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /users/me:
+ *   put:
+ *     summary: Update my profile
+ *     description: Update the authenticated user's own profile information (firstName, lastName, email).
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *                 format: email
+ *     responses:
+ *       200:
+ *         description: Profile updated successfully
+ *       400:
+ *         description: Invalid input
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.put('/me',
+  authenticate,
+  (req: Request, res: Response): void => {
+    usersController.updateMyProfile(req, res);
   }
 );
 
@@ -172,10 +212,11 @@ router.post('/',
  *               status:
  *                 type: string
  *                 enum: [active, inactive]
- *               roles:
+ *               roleIds:
  *                 type: array
  *                 items:
  *                   type: string
+ *                   description: Role UUID
  *     responses:
  *       200:
  *         description: User updated successfully
@@ -302,6 +343,7 @@ router.post('/:id/reset-password',
  *               - firstName
  *               - lastName
  *               - email
+ *               - roleIds
  *             properties:
  *               firstName:
  *                 type: string
@@ -310,10 +352,14 @@ router.post('/:id/reset-password',
  *               email:
  *                 type: string
  *                 format: email
- *               roles:
+ *               roleIds:
  *                 type: array
  *                 items:
  *                   type: string
+ *                   description: Role UUID
+ *               message:
+ *                 type: string
+ *                 description: Optional invitation message to include in the email
  *     responses:
  *       201:
  *         description: Invitation sent successfully

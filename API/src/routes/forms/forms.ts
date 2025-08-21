@@ -347,6 +347,148 @@ router.get(
 
 /**
  * @swagger
+ * /forms/templates/{id}/beneficiary-mapping:
+ *   get:
+ *     summary: Get beneficiary mapping configuration for a form template
+ *     tags: [Forms, Beneficiaries]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: The form template ID
+ *     responses:
+ *       200:
+ *         description: Beneficiary mapping configuration
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Mapping not found
+ */
+router.get(
+  "/templates/:id/beneficiary-mapping",
+  authenticate,
+  (req: Request, res: Response): void => {
+    formsController.beneficiaryMapping.getMapping(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /forms/templates/{id}/beneficiary-mapping:
+ *   post:
+ *     summary: Create beneficiary mapping configuration for a form template
+ *     tags: [Forms, Beneficiaries]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: The form template ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - mapping
+ *             properties:
+ *               mapping:
+ *                 type: object
+ *                 properties:
+ *                   fields:
+ *                     type: object
+ *                     properties:
+ *                       firstName: { type: string }
+ *                       lastName: { type: string }
+ *                       dob: { type: string }
+ *                       nationalId: { type: string }
+ *                       phone: { type: string }
+ *                       email: { type: string }
+ *                       address: { type: string }
+ *                   strategies:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                       enum: ["nationalId", "phone+dob", "name+dob"]
+ *     responses:
+ *       201:
+ *         description: Mapping created
+ *       400:
+ *         description: Invalid input
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       409:
+ *         description: Mapping already exists
+ */
+router.post(
+  "/templates/:id/beneficiary-mapping",
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  (req: Request, res: Response): void => {
+    formsController.beneficiaryMapping.createMapping(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /forms/templates/{id}/beneficiary-mapping:
+ *   put:
+ *     summary: Update beneficiary mapping configuration for a form template
+ *     tags: [Forms, Beneficiaries]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: The form template ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - mapping
+ *             properties:
+ *               mapping:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Mapping updated
+ *       400:
+ *         description: Invalid input
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
+router.put(
+  "/templates/:id/beneficiary-mapping",
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  (req: Request, res: Response): void => {
+    formsController.beneficiaryMapping.updateMapping(req, res);
+  }
+);
+
+/**
+ * @swagger
  * /forms/templates/{id}/responses:
  *   post:
  *     summary: Submit a response to a form

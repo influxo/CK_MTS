@@ -114,29 +114,60 @@ router.put('/change-password', authenticate, (req: Request, res: Response): void
   authController.changePassword(req, res);
 });
 
+ 
+
 /**
  * @swagger
- * /auth/verify-email:
- *   get:
- *     summary: Verify email for invited users
+ * /auth/accept-invitation:
+ *   post:
+ *     summary: Accept an invitation by setting a password and activating the account
  *     tags: [Authentication]
- *     parameters:
- *       - in: query
- *         name: token
- *         schema:
- *           type: string
- *         required: true
- *         description: Email verification token
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - token
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               token:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 8
  *     responses:
  *       200:
- *         description: Email verified successfully
+ *         description: Account activated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     token:
+ *                       type: string
+ *                     user:
+ *                       $ref: '#/components/schemas/User'
  *       400:
- *         description: Invalid or expired token
+ *         description: Invalid input or expired token
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/verify-email', (req: Request, res: Response): void => {
-  usersController.verifyEmail(req, res);
+router.post('/accept-invitation', (req: Request, res: Response): void => {
+  usersController.acceptInvitation(req, res);
 });
 
 export default router;

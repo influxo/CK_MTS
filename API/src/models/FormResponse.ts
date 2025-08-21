@@ -11,6 +11,7 @@ class FormResponse extends Model {
   public entityId!: string; // ID of the entity this response is associated with
   public entityType!: string; // 'project', 'subproject', or 'activity'
   public submittedBy!: string; // foreign key to users
+  public beneficiaryId?: string | null; // optional foreign key to beneficiaries
   public data!: any; // JSONB field storing user responses
   public latitude?: number; // optional GPS latitude coordinate
   public longitude?: number; // optional GPS longitude coordinate
@@ -53,6 +54,14 @@ FormResponse.init(
       allowNull: false,
       references: {
         model: "users",
+        key: "id",
+      },
+    },
+    beneficiaryId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: "beneficiaries",
         key: "id",
       },
     },
