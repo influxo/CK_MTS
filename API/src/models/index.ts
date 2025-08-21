@@ -15,6 +15,9 @@ import FormResponse from "./FormResponse";
 import AuditLog from "./AuditLog";
 import FormField from "./FormField";
 import Kpi from "./Kpi";
+import Beneficiary from "./Beneficiary";
+import BeneficiaryMatchKey from "./BeneficiaryMatchKey";
+import BeneficiaryMapping from "./BeneficiaryMapping";
 
 // Set up associations
 
@@ -155,6 +158,16 @@ FormResponse.belongsTo(User, {
   as: "submitter"
 });
 
+// FormResponse-Beneficiary associations
+Beneficiary.hasMany(FormResponse, {
+  foreignKey: "beneficiaryId",
+  as: "responses"
+});
+FormResponse.belongsTo(Beneficiary, {
+  foreignKey: "beneficiaryId",
+  as: "beneficiary"
+});
+
 // FormField-Kpi associations
 FormField.hasMany(Kpi, {
   foreignKey: "fieldId",
@@ -163,6 +176,26 @@ FormField.hasMany(Kpi, {
 Kpi.belongsTo(FormField, {
   foreignKey: "fieldId",
   as: "field"
+});
+
+// Beneficiary-MatchKey associations
+Beneficiary.hasMany(BeneficiaryMatchKey, {
+  foreignKey: 'beneficiaryId',
+  as: 'matchKeys'
+});
+BeneficiaryMatchKey.belongsTo(Beneficiary, {
+  foreignKey: 'beneficiaryId',
+  as: 'beneficiary'
+});
+
+// FormTemplate-BeneficiaryMapping associations
+FormTemplate.hasOne(BeneficiaryMapping, {
+  foreignKey: 'formTemplateId',
+  as: 'beneficiaryMapping'
+});
+BeneficiaryMapping.belongsTo(FormTemplate, {
+  foreignKey: 'formTemplateId',
+  as: 'formTemplate'
 });
 
 // Export models
@@ -183,5 +216,8 @@ export {
   FormResponse,
   AuditLog,
   FormField,
-  Kpi
+  Kpi,
+  Beneficiary,
+  BeneficiaryMatchKey,
+  BeneficiaryMapping
 };

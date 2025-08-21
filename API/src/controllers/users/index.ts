@@ -1,11 +1,12 @@
 import { Request, Response } from 'express';
-import { User, Role, UserRole } from '../../models';
+import { User, Role, UserRole, AuditLog } from '../../models';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { Op } from 'sequelize';
 import crypto from 'crypto';
 import { createLogger } from '../../utils/logger';
 import { sendInvitationEmail } from '../../utils/mailer';
+import jwt from 'jsonwebtoken';
 
 // Create a logger instance for this module
 const logger = createLogger('users-controller');
@@ -31,6 +32,69 @@ export const getAllUsers = async (req: Request, res: Response) => {
       success: false,
       message: 'Internal server error'
     });
+  }
+};
+
+/**
+ * Update my profile (self-service)
+ * Allows only: firstName, lastName, email
+ */
+export const updateMyProfile = async (req: Request, res: Response) => {
+  const authUser = (req as any).user;
+  if (!authUser || !authUser.id) {
+    logger.warn('Unauthorized profile update attempt: missing auth user');
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+
+  const userId = authUser.id;
+  logger.info('Updating own profile', { userId });
+
+  try {
+    const { firstName, lastName, email } = req.body;
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      logger.warn('Authenticated user not found for profile update', { userId });
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // If email is changing, ensure uniqueness
+    if (email && email !== user.email) {
+      logger.info('Self email change requested', { userId, oldEmail: user.email, newEmail: email });
+      const existingUser = await User.findOne({ where: { email } });
+      if (existingUser) {
+        logger.warn('Email is already in use during self-update', { email });
+        return res.status(400).json({ success: false, message: 'Email is already in use' });
+      }
+    }
+
+    const updateData: any = {};
+    if (firstName) updateData.firstName = firstName;
+    if (lastName) updateData.lastName = lastName;
+    if (email) updateData.email = email;
+
+    await user.update(updateData);
+
+    // Reload with roles for consistent response shape
+    const updatedUser = await User.findByPk(userId, { include: [{ association: 'roles' }] });
+
+    // Audit log
+    await AuditLog.create({
+      userId,
+      action: 'USER_PROFILE_UPDATED',
+      description: 'User updated own profile information',
+      details: JSON.stringify({ fields: Object.keys(updateData) }),
+    });
+
+    logger.info('Profile updated successfully', { userId });
+    return res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: updatedUser,
+    });
+  } catch (error: any) {
+    logger.error('Error updating profile', error);
+    return res.status(500).json({ success: false, message: 'Error updating profile', error: error.message });
   }
 };
 
@@ -537,6 +601,11 @@ export const inviteUser = async (req: Request, res: Response) => {
       include: [{ model: Role, as: 'roles' }],
     });
 
+    // Prepare accept-invitation link once so it can be returned in response
+    const rawAcceptBase = `${process.env.FRONTEND_ACCEPT_INVITE_URL}/accept-invitation` || 'http://localhost:5173/accept-invitation';
+    const acceptBase = /^(https?:)\/\//i.test(rawAcceptBase) ? rawAcceptBase : `https://${rawAcceptBase}`;
+    const acceptInvitationLink = `${acceptBase}?token=${verificationToken}&email=${encodeURIComponent(email)}`;
+
     // TODO: Send invitation email with verification link
     logger.info('User invited successfully, email should be sent', { userId: user.id });
     
@@ -549,17 +618,13 @@ export const inviteUser = async (req: Request, res: Response) => {
         month: 'long', 
         day: 'numeric' 
       });
-      
-      // Generate verification link
-      const verificationLink = `${req.protocol}://${req.get('host')}/api/auth/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
-      
       // Send invitation email
       await sendInvitationEmail({
         firstName,
         lastName,
         email,
         expiration: formattedExpiration,
-        inviteLink: verificationLink,
+        inviteLink: acceptInvitationLink,
         message,
       });
       
@@ -576,7 +641,7 @@ export const inviteUser = async (req: Request, res: Response) => {
       data: {
         user: userWithRoles,
         verificationToken, // In production, remove this from the response
-        verificationLink: `${req.protocol}://${req.get('host')}/api/auth/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`
+        acceptInvitationLink,
       },
     });
   } catch (error: any) {
@@ -623,19 +688,32 @@ export const verifyEmail = async (req: Request, res: Response) => {
       });
     }
 
-    // Update user status
-    logger.info('Updating user status to active', { userId: user.id });
+    // Mark email as verified but keep token for accept step
+    logger.info('Marking email as verified; awaiting accept-invitation to activate account', { userId: user.id });
     await user.update({
-      status: 'active',
       emailVerified: true,
-      verificationToken: null,
-      tokenExpiry: null,
     });
 
-    logger.info('Email verified successfully', { userId: user.id });
+    // Audit log
+    await AuditLog.create({
+      userId: user.id,
+      action: 'USER_EMAIL_VERIFIED',
+      description: `User email verified`,
+      details: JSON.stringify({ email: user.email }),
+    });
+
+    // If a frontend accept invitation URL is configured, redirect user there with token and email
+    const acceptUrl = process.env.FRONTEND_ACCEPT_INVITE_URL;
+    if (acceptUrl && typeof acceptUrl === 'string') {
+      const redirectTo = `${acceptUrl}?token=${encodeURIComponent(String(token))}&email=${encodeURIComponent(String(email))}`;
+      logger.info('Email verified successfully; redirecting to accept invitation UI', { userId: user.id, redirectTo });
+      return res.redirect(302, redirectTo);
+    }
+
+    logger.info('Email verified successfully (token retained for acceptance), no FRONTEND_ACCEPT_INVITE_URL configured', { userId: user.id });
     return res.status(200).json({
       success: true,
-      message: 'Email verified successfully. You can now log in.',
+      message: 'Email verified. Please set your password to activate your account.',
     });
   } catch (error: any) {
     logger.error('Error verifying email', error);
@@ -647,13 +725,102 @@ export const verifyEmail = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Accept an invitation: set password and activate account
+ */
+export const acceptInvitation = async (req: Request, res: Response) => {
+  logger.info('Accept invitation attempt');
+  try {
+    const { token, email, password } = req.body;
+
+    // Validate input
+    if (!token || !email || !password) {
+      logger.warn('Missing fields for accepting invitation', { token: !!token, email: !!email, hasPassword: !!password });
+      return res.status(400).json({
+        success: false,
+        message: 'Token, email and password are required',
+      });
+    }
+
+    if (typeof password !== 'string' || password.length < 8) {
+      logger.warn('Password does not meet complexity requirements');
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters long',
+      });
+    }
+
+    // Find user by email and token and ensure token not expired
+    const user = await User.scope('withPassword').findOne({
+      where: {
+        email,
+        verificationToken: token,
+        tokenExpiry: { [Op.gt]: new Date() },
+      },
+      include: [{ association: 'roles' }],
+    });
+
+    if (!user) {
+      logger.warn('Invalid or expired token during accept-invitation', { email });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired token',
+      });
+    }
+
+    // Update password and activate account
+    logger.info('Activating user and setting password', { userId: user.id });
+    await user.update({
+      password, // will be hashed by model setter
+      status: 'active',
+      emailVerified: true,
+      verificationToken: null,
+      tokenExpiry: null,
+    });
+
+    // Audit log
+    await AuditLog.create({
+      userId: user.id,
+      action: 'USER_INVITATION_ACCEPTED',
+      description: `User accepted invitation and activated account`,
+      details: JSON.stringify({ email: user.email }),
+    });
+
+    // Issue JWT for immediate login
+    const jwtSecret = process.env.JWT_SECRET || 'default_secret_change_me';
+    const tokenJwt = jwt.sign({ id: user.id }, jwtSecret, { expiresIn: '24h' });
+
+    // Reload user without password
+    const activatedUser = await User.findByPk(user.id, { include: [{ association: 'roles' }] });
+
+    logger.info('Invitation accepted successfully', { userId: user.id });
+    return res.status(200).json({
+      success: true,
+      message: 'Account activated successfully',
+      data: {
+        token: tokenJwt,
+        user: activatedUser,
+      },
+    });
+  } catch (error: any) {
+    logger.error('Error accepting invitation', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error accepting invitation',
+      error: error.message,
+    });
+  }
+};
+
 export default {
   getAllUsers,
   getUserById,
   createUser,
   updateUser,
+  updateMyProfile,
   deleteUser,
   resetPassword,
   inviteUser,
   verifyEmail,
+  acceptInvitation,
 };

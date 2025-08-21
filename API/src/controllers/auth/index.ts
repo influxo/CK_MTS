@@ -53,6 +53,15 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
+    // Check if email is verified
+    if (!user.emailVerified) {
+      logger.warn('Login attempt with unverified email', { email });
+      return res.status(403).json({ 
+        success: false,
+        message: 'Email not verified. Please verify your email to continue.' 
+      });
+    }
+
     // Verify password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {

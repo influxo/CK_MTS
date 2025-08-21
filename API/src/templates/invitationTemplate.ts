@@ -42,10 +42,16 @@ export const generateInvitationEmail = ({
               </div>
   
               <div style="text-align: center; margin-bottom: 20px;">
-                <a href="${inviteLink}" style="display: inline-block; background-color: #2563eb; color: #fff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-size: 14px;">
+                <a href="${inviteLink}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #2563eb; color: #fff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-size: 14px; cursor: pointer;">
                   Accept Invitation
                 </a>
               </div>
+              <p style="font-size: 12px; color: #6b7280; margin-top: 12px;">
+                If the button above doesn't work, copy and paste this link into your browser:
+              </p>
+              <p style="font-size: 12px; color: #6b7280; word-break: break-all;">
+                <a href="${inviteLink}" target="_blank" rel="noopener noreferrer">${inviteLink}</a>
+              </p>
   
               <p style="font-size: 12px; color: #9ca3af;">
                 This invitation will expire on <strong>${expiration}</strong>.
