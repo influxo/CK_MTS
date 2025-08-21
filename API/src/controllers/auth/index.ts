@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { User, Role } from '../../models';
+import { User, Role, Project, Subproject, Activity } from '../../models';
 import { createLogger } from '../../utils/logger';
 
 // Create a logger instance for this module
@@ -135,8 +135,195 @@ export const getProfile = async (req: Request, res: Response) => {
       });
     }
 
-    logger.info('Profile retrieved successfully', { userId });
-    // Return user profile
+    // Fetch all assignments for this user across levels
+    const [projectsDirect, subprojectsDirect, activitiesDirect] = await Promise.all([
+      Project.findAll({
+        attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
+        include: [
+          {
+            model: User,
+            as: 'members',
+            attributes: [],
+            through: { attributes: [] },
+            where: { id: userId },
+            required: true
+          }
+        ]
+      }),
+      Subproject.findAll({
+        attributes: ['id', 'name', 'description', 'category', 'status', 'projectId', 'createdAt', 'updatedAt'],
+        include: [
+          {
+            model: User,
+            as: 'members',
+            attributes: [],
+            through: { attributes: [] },
+            where: { id: userId },
+            required: true
+          },
+          {
+            model: Project,
+            as: 'project',
+            attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt']
+          }
+        ]
+      }),
+      Activity.findAll({
+        attributes: ['id', 'name', 'description', 'category', 'frequency', 'status', 'subprojectId', 'createdAt', 'updatedAt'],
+        include: [
+          {
+            model: User,
+            as: 'members',
+            attributes: [],
+            through: { attributes: [] },
+            where: { id: userId },
+            required: true
+          },
+          {
+            model: Subproject,
+            as: 'subproject',
+            attributes: ['id', 'name', 'description', 'category', 'status', 'projectId', 'createdAt', 'updatedAt'],
+            include: [
+              {
+                model: Project,
+                as: 'project',
+                attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt']
+              }
+            ]
+          }
+        ]
+      })
+    ]);
+
+    // Build nested structure: projects -> subprojects -> activities
+    type ProjectOut = {
+      id: string;
+      name: string;
+      description?: string | null;
+      category?: string | null;
+      status: string;
+      createdAt?: Date;
+      updatedAt?: Date;
+      subprojects: SubprojectOut[];
+    };
+
+    type SubprojectOut = {
+      id: string;
+      name: string;
+      description?: string | null;
+      category?: string | null;
+      status: string;
+      projectId: string;
+      createdAt?: Date;
+      updatedAt?: Date;
+      activities: ActivityOut[];
+    };
+
+    type ActivityOut = {
+      id: string;
+      name: string;
+      description?: string | null;
+      category?: string | null;
+      frequency?: string | null;
+      status: string;
+      subprojectId: string;
+      createdAt?: Date;
+      updatedAt?: Date;
+    };
+
+    const pickProject = (p: any): Omit<ProjectOut, 'subprojects'> => ({
+      id: p.id,
+      name: p.name,
+      description: p.description ?? null,
+      category: p.category ?? null,
+      status: p.status,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt
+    });
+
+    const pickSubproject = (s: any): Omit<SubprojectOut, 'activities'> => ({
+      id: s.id,
+      name: s.name,
+      description: s.description ?? null,
+      category: s.category ?? null,
+      status: s.status,
+      projectId: s.projectId,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt
+    });
+
+    const pickActivity = (a: any): ActivityOut => ({
+      id: a.id,
+      name: a.name,
+      description: a.description ?? null,
+      category: a.category ?? null,
+      frequency: a.frequency ?? null,
+      status: a.status,
+      subprojectId: a.subprojectId,
+      createdAt: a.createdAt,
+      updatedAt: a.updatedAt
+    });
+
+    const projectMap: Map<string, ProjectOut> = new Map();
+
+    // Seed with directly assigned projects
+    for (const p of projectsDirect) {
+      const pj = (p as any).toJSON();
+      const proj = { ...pickProject(pj), subprojects: [] as SubprojectOut[] };
+      projectMap.set(proj.id, proj);
+    }
+
+    // Add subprojects (ensure parent projects exist even if not directly assigned)
+    for (const s of subprojectsDirect) {
+      const sj = (s as any).toJSON();
+      const parentProject = sj.project;
+      const projId: string = sj.projectId || parentProject?.id;
+
+      if (!projectMap.has(projId)) {
+        // Create project container from included parent
+        const base = parentProject ? pickProject(parentProject) : { id: projId, name: '', description: null, category: null, status: 'active', createdAt: undefined, updatedAt: undefined } as any;
+        projectMap.set(projId, { ...base, subprojects: [] });
+      }
+
+      const container = projectMap.get(projId)!;
+      const exists = container.subprojects.find((sp) => sp.id === sj.id);
+      if (!exists) {
+        container.subprojects.push({ ...pickSubproject(sj), activities: [] });
+      }
+    }
+
+    // Add activities (ensure parent subprojects and projects exist)
+    for (const a of activitiesDirect) {
+      const aj = (a as any).toJSON();
+      const parentSub = aj.subproject;
+      const parentProj = parentSub?.project;
+      const projId: string = parentSub?.projectId;
+      const subId: string = aj.subprojectId;
+
+      if (projId && !projectMap.has(projId)) {
+        projectMap.set(projId, { ...pickProject(parentProj), subprojects: [] });
+      }
+      const projContainer = projId ? projectMap.get(projId)! : undefined;
+      if (projContainer) {
+        let subContainer = projContainer.subprojects.find((sp) => sp.id === subId);
+        if (!subContainer) {
+          // Create subproject container from included parent
+          subContainer = { ...pickSubproject(parentSub), activities: [] };
+          projContainer.subprojects.push(subContainer);
+        }
+        // Add activity if not already present
+        if (!subContainer.activities.find((ac) => ac.id === aj.id)) {
+          subContainer.activities.push(pickActivity(aj));
+        }
+      }
+    }
+
+    // Final nested projects array
+    const projectsNested: ProjectOut[] = Array.from(projectMap.values());
+
+    logger.info('Profile retrieved successfully', { userId, projectsCount: projectsNested.length });
+
+    // Return user profile with assignments
     return res.status(200).json({
       success: true,
       data: {
@@ -147,7 +334,8 @@ export const getProfile = async (req: Request, res: Response) => {
         roles: user.get('roles'),
         status: user.status,
         twoFactorEnabled: user.twoFactorEnabled,
-        lastLogin: user.lastLogin
+        lastLogin: user.lastLogin,
+        assignments: projectsNested
       }
     });
   } catch (error) {
