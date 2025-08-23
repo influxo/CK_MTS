@@ -36,6 +36,219 @@ export const getAllUsers = async (req: Request, res: Response) => {
 };
 
 /**
+ * Get projects and subprojects associated to a user (nested)
+ * Response: [{ project, subprojects: [...] }]
+ */
+export const getUserProjectsWithSubprojects = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  logger.info('Getting user projects with subprojects', { userId: id });
+
+  try {
+    // Ensure user exists (light check)
+    const user = await User.findByPk(id);
+    if (!user) {
+      logger.warn('User not found when fetching projects/subprojects', { userId: id });
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const targetUserId = id;
+
+    const [projectsDirect, subprojectsDirect, activitiesDirect] = await Promise.all([
+      // Direct projects where the user is a member
+      Project.findAll({
+        attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
+        include: [
+          {
+            model: User,
+            as: 'members',
+            attributes: [],
+            through: { attributes: [] },
+            where: { id: targetUserId },
+            required: true,
+          },
+        ],
+        order: [['name', 'ASC']],
+      }),
+      // Direct subprojects where the user is a member (include parent project)
+      Subproject.findAll({
+        attributes: ['id', 'name', 'description', 'category', 'status', 'projectId', 'createdAt', 'updatedAt'],
+        include: [
+          {
+            model: User,
+            as: 'members',
+            attributes: [],
+            through: { attributes: [] },
+            where: { id: targetUserId },
+            required: true,
+          },
+          {
+            model: Project,
+            as: 'project',
+            attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
+          },
+        ],
+        order: [['name', 'ASC']],
+      }),
+      // Direct activities where the user is a member (include parent subproject and project)
+      Activity.findAll({
+        attributes: ['id', 'name', 'description', 'category', 'frequency', 'status', 'subprojectId', 'createdAt', 'updatedAt'],
+        include: [
+          {
+            model: User,
+            as: 'members',
+            attributes: [],
+            through: { attributes: [] },
+            where: { id: targetUserId },
+            required: true,
+          },
+          {
+            model: Subproject,
+            as: 'subproject',
+            attributes: ['id', 'name', 'description', 'category', 'status', 'projectId', 'createdAt', 'updatedAt'],
+            include: [
+              {
+                model: Project,
+                as: 'project',
+                attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
+              },
+            ],
+          },
+        ],
+      }),
+    ]);
+
+    type ProjectOut = {
+      id: string;
+      name: string;
+      description?: string | null;
+      category?: string | null;
+      status: string;
+      createdAt?: Date;
+      updatedAt?: Date;
+      subprojects: SubprojectOut[];
+    };
+
+    type SubprojectOut = {
+      id: string;
+      name: string;
+      description?: string | null;
+      category?: string | null;
+      status: string;
+      projectId: string;
+      createdAt?: Date;
+      updatedAt?: Date;
+      activities: ActivityOut[];
+    };
+
+    type ActivityOut = {
+      id: string;
+      name: string;
+      description?: string | null;
+      category?: string | null;
+      frequency?: string | null;
+      status: string;
+      subprojectId: string;
+      createdAt?: Date;
+      updatedAt?: Date;
+    };
+
+    const pickProject = (p: any): Omit<ProjectOut, 'subprojects'> => ({
+      id: p.id,
+      name: p.name,
+      description: p.description ?? null,
+      category: p.category ?? null,
+      status: p.status,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+    });
+
+    const pickSubproject = (s: any): Omit<SubprojectOut, 'activities'> => ({
+      id: s.id,
+      name: s.name,
+      description: s.description ?? null,
+      category: s.category ?? null,
+      status: s.status,
+      projectId: s.projectId,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+    });
+
+    const pickActivity = (a: any): ActivityOut => ({
+      id: a.id,
+      name: a.name,
+      description: a.description ?? null,
+      category: a.category ?? null,
+      frequency: a.frequency ?? null,
+      status: a.status,
+      subprojectId: a.subprojectId,
+      createdAt: a.createdAt,
+      updatedAt: a.updatedAt,
+    });
+
+    const projectMap: Map<string, ProjectOut> = new Map();
+
+    // Seed with direct projects
+    for (const p of projectsDirect) {
+      const pj = (p as any).toJSON();
+      const proj = { ...pickProject(pj), subprojects: [] as SubprojectOut[] };
+      projectMap.set(proj.id, proj);
+    }
+
+    // Add subprojects under their parent projects
+    for (const s of subprojectsDirect) {
+      const sj = (s as any).toJSON();
+      const parentProject = sj.project;
+      const projId: string = sj.projectId || parentProject?.id;
+
+      if (!projId) continue;
+
+      if (!projectMap.has(projId)) {
+        const base = parentProject ? pickProject(parentProject) : { id: projId, name: '', description: null, category: null, status: 'active', createdAt: undefined, updatedAt: undefined } as any;
+        projectMap.set(projId, { ...base, subprojects: [] });
+      }
+
+      const container = projectMap.get(projId)!;
+      const exists = container.subprojects.find((sp) => sp.id === sj.id);
+      if (!exists) {
+        container.subprojects.push({ ...pickSubproject(sj), activities: [] });
+      }
+    }
+
+    // Add activities (ensure parent subprojects and projects exist)
+    for (const a of activitiesDirect) {
+      const aj = (a as any).toJSON();
+      const parentSub = aj.subproject;
+      const parentProj = parentSub?.project;
+      const projId: string = parentSub?.projectId;
+      const subId: string = aj.subprojectId;
+
+      if (projId && !projectMap.has(projId)) {
+        projectMap.set(projId, { ...pickProject(parentProj), subprojects: [] });
+      }
+      const projContainer = projId ? projectMap.get(projId)! : undefined;
+      if (projContainer) {
+        let subContainer = projContainer.subprojects.find((sp) => sp.id === subId);
+        if (!subContainer) {
+          subContainer = { ...pickSubproject(parentSub), activities: [] } as SubprojectOut;
+          projContainer.subprojects.push(subContainer);
+        }
+        if (!subContainer.activities.find((ac) => ac.id === aj.id)) {
+          subContainer.activities.push(pickActivity(aj));
+        }
+      }
+    }
+
+    const projectsNested: ProjectOut[] = Array.from(projectMap.values());
+
+    logger.info('Successfully built nested projects/subprojects/activities for user', { userId: id, count: projectsNested.length });
+    return res.status(200).json({ success: true, items: projectsNested });
+  } catch (error: any) {
+    logger.error('Error fetching user projects with subprojects', { userId: id, error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
  * Update my profile (self-service)
  * Allows only: firstName, lastName, email
  */
@@ -799,7 +1012,7 @@ export const inviteUser = async (req: Request, res: Response) => {
     });
 
     // Prepare accept-invitation link once so it can be returned in response
-    const rawAcceptBase = `${process.env.FRONTEND_ACCEPT_INVITE_URL}/accept-invitation` || 'http://localhost:5173/accept-invitation';
+    const rawAcceptBase = `${process.env.FRONTEND_URL}/accept-invitation` || 'http://localhost:5173/accept-invitation';
     const acceptBase = /^(https?:)\/\//i.test(rawAcceptBase) ? rawAcceptBase : `https://${rawAcceptBase}`;
     const acceptInvitationLink = `${acceptBase}?token=${verificationToken}&email=${encodeURIComponent(email)}`;
 
@@ -907,7 +1120,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
       return res.redirect(302, redirectTo);
     }
 
-    logger.info('Email verified successfully (token retained for acceptance), no FRONTEND_ACCEPT_INVITE_URL configured', { userId: user.id });
+    logger.info('Email verified successfully (token retained for acceptance), no FRONTEND_URL configured', { userId: user.id });
     return res.status(200).json({
       success: true,
       message: 'Email verified. Please set your password to activate your account.',
@@ -1020,4 +1233,5 @@ export default {
   inviteUser,
   verifyEmail,
   acceptInvitation,
+  getUserProjectsWithSubprojects,
 };

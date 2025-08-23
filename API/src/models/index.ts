@@ -18,6 +18,9 @@ import Kpi from "./Kpi";
 import Beneficiary from "./Beneficiary";
 import BeneficiaryMatchKey from "./BeneficiaryMatchKey";
 import BeneficiaryMapping from "./BeneficiaryMapping";
+import Service from "./Service";
+import ServiceAssignment from "./ServiceAssignment";
+import ServiceDelivery from "./ServiceDelivery";
 
 // Set up associations
 
@@ -188,6 +191,52 @@ BeneficiaryMatchKey.belongsTo(Beneficiary, {
   as: 'beneficiary'
 });
 
+// Service associations
+Service.hasMany(ServiceAssignment, {
+  foreignKey: 'serviceId',
+  as: 'assignments'
+});
+ServiceAssignment.belongsTo(Service, {
+  foreignKey: 'serviceId',
+  as: 'service'
+});
+
+Service.hasMany(ServiceDelivery, {
+  foreignKey: 'serviceId',
+  as: 'deliveries'
+});
+ServiceDelivery.belongsTo(Service, {
+  foreignKey: 'serviceId',
+  as: 'service'
+});
+
+Beneficiary.hasMany(ServiceDelivery, {
+  foreignKey: 'beneficiaryId',
+  as: 'serviceDeliveries'
+});
+ServiceDelivery.belongsTo(Beneficiary, {
+  foreignKey: 'beneficiaryId',
+  as: 'beneficiary'
+});
+
+User.hasMany(ServiceDelivery, {
+  foreignKey: 'staffUserId',
+  as: 'serviceDeliveries'
+});
+ServiceDelivery.belongsTo(User, {
+  foreignKey: 'staffUserId',
+  as: 'staff'
+});
+
+FormResponse.hasMany(ServiceDelivery, {
+  foreignKey: 'formResponseId',
+  as: 'serviceDeliveries'
+});
+ServiceDelivery.belongsTo(FormResponse, {
+  foreignKey: 'formResponseId',
+  as: 'formResponse'
+});
+
 // FormTemplate-BeneficiaryMapping associations
 FormTemplate.hasOne(BeneficiaryMapping, {
   foreignKey: 'formTemplateId',
@@ -219,5 +268,8 @@ export {
   Kpi,
   Beneficiary,
   BeneficiaryMatchKey,
-  BeneficiaryMapping
+  BeneficiaryMapping,
+  Service,
+  ServiceAssignment,
+  ServiceDelivery
 };

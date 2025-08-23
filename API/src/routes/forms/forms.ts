@@ -531,6 +531,29 @@ router.put(
  *               longitude:
  *                 type: number
  *                 description: Optional longitude where the form was submitted
+ *               services:
+ *                 type: array
+ *                 description: Optional list of services delivered as part of this submission. Only services assigned to the entity are accepted.
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - serviceId
+ *                   properties:
+ *                     serviceId:
+ *                       type: string
+ *                       format: uuid
+ *                       description: ID of the service delivered
+ *                     deliveredAt:
+ *                       type: string
+ *                       format: date-time
+ *                       description: When the service was delivered (defaults to now if omitted)
+ *                     staffUserId:
+ *                       type: string
+ *                       format: uuid
+ *                       description: Staff user who delivered the service (defaults to the submitting user if omitted)
+ *                     notes:
+ *                       type: string
+ *                       description: Optional notes about the delivery
  *     responses:
  *       201:
  *         description: Form response submitted successfully
@@ -583,6 +606,86 @@ router.get(
   authenticate,
   (req: Request, res: Response): void => {
     formsController.responses.getFormResponses(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /forms/responses/by-entity:
+ *   get:
+ *     summary: Get form responses by entity (project, subproject, activity)
+ *     description: Returns form responses for a specific entity and optionally filters by form template. Each response includes linked beneficiary, submitter, and service deliveries.
+ *     tags: [Forms]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: entityId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: true
+ *         description: The entity ID (project, subproject, or activity)
+ *       - in: query
+ *         name: entityType
+ *         schema:
+ *           type: string
+ *           enum: [project, subproject, activity]
+ *         required: true
+ *         description: The entity type
+ *       - in: query
+ *         name: templateId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Optional filter to only include responses for a specific form template
+ *       - in: query
+ *         name: fromDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         required: false
+ *         description: Filter responses submitted on/after this timestamp
+ *       - in: query
+ *         name: toDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         required: false
+ *         description: Filter responses submitted on/before this timestamp
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         required: false
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: List of form responses for the entity with service deliveries included
+ *       400:
+ *         description: Missing or invalid parameters
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - user does not have access
+ */
+router.get(
+  "/responses/by-entity",
+  authenticate,
+  (req: Request, res: Response): void => {
+    formsController.responses.getResponsesByEntity(req, res);
   }
 );
 
