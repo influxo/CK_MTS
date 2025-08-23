@@ -84,6 +84,43 @@ router.get('/:id',
 
 /**
  * @swagger
+ * /users/{id}/projects:
+ *   get:
+ *     summary: Get projects with nested subprojects and activities associated to a user
+ *     description: Returns all projects the user belongs to, subprojects the user belongs to, and activities the user belongs to, with activities nested under subprojects and subprojects nested under their parent projects.
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID
+ *     responses:
+ *       200:
+ *         description: List of projects with nested subprojects and activities
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get(
+  '/:id/projects',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  (req: Request, res: Response): void => {
+    usersController.getUserProjectsWithSubprojects(req, res);
+  }
+);
+
+/**
+ * @swagger
  * /users:
  *   post:
  *     summary: Create a new user

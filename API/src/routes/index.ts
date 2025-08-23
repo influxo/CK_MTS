@@ -12,6 +12,7 @@ import beneficiariesRouter from "./beneficiaries/beneficiaries";
 import loggerMiddleware from "../middlewares/logger";
 import rolesRouter from "./roles/roles";
 import permissionsRouter from "./permissions/permissions";
+import servicesRouter from "./services/services";
 
 const router = Router();
 
@@ -77,5 +78,8 @@ router.use("/roles", rolesRouter);
 
 // Permissions routes
 router.use("/permissions", permissionsRouter);
+
+// Services routes
+router.use("/services", servicesRouter);
 
 export default router;

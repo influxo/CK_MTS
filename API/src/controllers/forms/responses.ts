@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { FormTemplate, FormResponse, User, AuditLog, Beneficiary, BeneficiaryMapping } from "../../models";
+import { FormTemplate, FormResponse, User, AuditLog, Beneficiary, BeneficiaryMapping, ServiceAssignment, ServiceDelivery, Activity, Service } from "../../models";
 import FormEntityAssociation from "../../models/FormEntityAssociation";
 import { v4 as uuidv4 } from "uuid";
 import { createLogger } from "../../utils/logger";
@@ -138,6 +138,68 @@ export const submitFormResponse = async (req: Request, res: Response) => {
         submittedAt: new Date()
       }, { transaction });
 
+      // If services were provided, create service deliveries
+      const servicesInput = Array.isArray(req.body.services) ? req.body.services : [];
+      let createdDeliveries = 0;
+      let skippedDeliveries: Array<{ serviceId: string; reason: string }> = [];
+
+      if (servicesInput.length > 0) {
+        // Determine allowed serviceIds for this entity
+        let allowedServiceIds = new Set<string>();
+
+        if (entityType === 'project' || entityType === 'subproject') {
+          const assignments = await ServiceAssignment.findAll({
+            where: { entityId, entityType },
+            transaction,
+          });
+          for (const a of assignments) allowedServiceIds.add(a.get('serviceId') as string);
+        } else if (entityType === 'activity') {
+          // Resolve to the subproject and check assignments there
+          const activity = await Activity.findByPk(entityId, { transaction });
+          const subprojectId = activity?.get('subprojectId') as string | undefined;
+          if (subprojectId) {
+            const assignments = await ServiceAssignment.findAll({
+              where: { entityId: subprojectId, entityType: 'subproject' },
+              transaction,
+            });
+            for (const a of assignments) allowedServiceIds.add(a.get('serviceId') as string);
+          }
+        }
+
+        for (const item of servicesInput) {
+          const serviceId = item?.serviceId as string | undefined;
+          if (!serviceId) {
+            skippedDeliveries.push({ serviceId: 'unknown', reason: 'missing serviceId' });
+            continue;
+          }
+          if (!beneficiaryId) {
+            skippedDeliveries.push({ serviceId, reason: 'no beneficiary linked' });
+            continue;
+          }
+          if (allowedServiceIds.size > 0 && !allowedServiceIds.has(serviceId)) {
+            skippedDeliveries.push({ serviceId, reason: 'service not assigned to entity' });
+            continue;
+          }
+
+          const deliveredAt = item?.deliveredAt ? new Date(item.deliveredAt) : new Date();
+          const staffUserId = (item?.staffUserId as string | undefined) || req.user.id;
+          const notes = (item?.notes as string | undefined) || null;
+
+          await ServiceDelivery.create({
+            id: uuidv4(),
+            serviceId,
+            beneficiaryId,
+            entityId,
+            entityType,
+            formResponseId: formResponse.id,
+            staffUserId,
+            deliveredAt,
+            notes,
+          }, { transaction });
+          createdDeliveries += 1;
+        }
+      }
+
       // Create audit log entry
       await AuditLog.create({
         id: uuidv4(),
@@ -150,7 +212,12 @@ export const submitFormResponse = async (req: Request, res: Response) => {
           entityId,
           entityType,
           version: template.version,
-          beneficiaryId: beneficiaryId ?? null
+          beneficiaryId: beneficiaryId ?? null,
+          services: {
+            requested: Array.isArray(req.body.services) ? req.body.services.length : 0,
+            created: createdDeliveries,
+            skipped: skippedDeliveries,
+          }
         }),
         timestamp: new Date()
       }, { transaction });
@@ -319,6 +386,15 @@ export const getFormResponses = async (req: Request, res: Response) => {
             model: Beneficiary,
             as: 'beneficiary',
             attributes: ['id', 'pseudonym', 'status']
+          },
+          {
+            model: ServiceDelivery,
+            as: 'serviceDeliveries',
+            attributes: ['id', 'serviceId', 'deliveredAt', 'staffUserId', 'notes'],
+            include: [
+              { model: Service, as: 'service', attributes: ['id', 'name', 'category'] },
+              { model: User, as: 'staff', attributes: ['id', 'firstName', 'lastName', 'email'] }
+            ]
           }
         ]
       }),
@@ -356,9 +432,111 @@ export const getFormResponses = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Get responses by entity (project, subproject, activity)
+ */
+export const getResponsesByEntity = async (req: Request, res: Response) => {
+  try {
+    // Required params
+    const entityId = (req.query.entityId as string) || '';
+    const entityType = (req.query.entityType as string) || '';
+
+    if (!entityId || !entityType) {
+      return res.status(400).json({
+        success: false,
+        message: "entityId and entityType are required",
+      });
+    }
+
+    if (!['project', 'subproject', 'activity'].includes(entityType)) {
+      return res.status(400).json({
+        success: false,
+        message: "entityType must be one of 'project', 'subproject', or 'activity'",
+      });
+    }
+
+    // Optional filters
+    const templateId = (req.query.templateId as string) || undefined;
+    const page = Math.max(parseInt(req.query.page as string) || 1, 1);
+    const limitRaw = parseInt(req.query.limit as string) || 20;
+    const limit = Math.max(1, Math.min(limitRaw, 100));
+    const offset = (page - 1) * limit;
+    const fromDate = req.query.fromDate ? new Date(req.query.fromDate as string) : null;
+    const toDate = req.query.toDate ? new Date(req.query.toDate as string) : null;
+
+    logger.info('Getting form responses by entity', { entityId, entityType, templateId, page, limit });
+
+    // Access control: verify user can access the entity
+    if (req.user && req.user.allowedProgramIds && !req.user.allowedProgramIds.includes(entityId)) {
+      logger.warn('User does not have access to entity', { userId: req.user.id, entityId });
+      return res.status(403).json({ success: false, message: 'You do not have access to this entity' });
+    }
+
+    // If templateId provided, ensure template exists and is associated with the entity
+    if (templateId) {
+      const template = await FormTemplate.findByPk(templateId, {
+        include: [{ model: FormEntityAssociation, as: 'entityAssociations' }]
+      });
+      if (!template) {
+        return res.status(404).json({ success: false, message: 'Form template not found' });
+      }
+      const associated = template.entityAssociations?.some(ea => ea.entityId === entityId && ea.entityType === entityType);
+      if (!associated) {
+        return res.status(400).json({ success: false, message: 'This entity is not associated with the specified form template' });
+      }
+    }
+
+    // Build where clause
+    const whereClause: any = { entityId, entityType };
+    if (templateId) whereClause.formTemplateId = templateId;
+    if (fromDate && toDate) {
+      whereClause.submittedAt = { [Op.between]: [fromDate, toDate] };
+    } else if (fromDate) {
+      whereClause.submittedAt = { [Op.gte]: fromDate };
+    } else if (toDate) {
+      whereClause.submittedAt = { [Op.lte]: toDate };
+    }
+
+    const [responses, totalCount] = await Promise.all([
+      FormResponse.findAll({
+        where: whereClause,
+        limit,
+        offset,
+        order: [['submittedAt', 'DESC']],
+        include: [
+          { model: FormTemplate, as: 'template', attributes: ['id', 'name', 'version'] },
+          { model: User, as: 'submitter', attributes: ['id', 'firstName', 'lastName', 'email'] },
+          { model: Beneficiary, as: 'beneficiary', attributes: ['id', 'pseudonym', 'status'] },
+          {
+            model: ServiceDelivery,
+            as: 'serviceDeliveries',
+            attributes: ['id', 'serviceId', 'deliveredAt', 'staffUserId', 'notes'],
+            include: [
+              { model: Service, as: 'service', attributes: ['id', 'name', 'category'] },
+              { model: User, as: 'staff', attributes: ['id', 'firstName', 'lastName', 'email'] }
+            ]
+          }
+        ]
+      }),
+      FormResponse.count({ where: whereClause })
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+    return res.status(200).json({
+      success: true,
+      data: responses,
+      meta: { page, limit, totalPages, totalItems: totalCount }
+    });
+  } catch (error: any) {
+    logger.error('Error fetching form responses by entity', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
 // Removed manual validation in favor of AJV validation service
 
 export default {
   submitFormResponse,
-  getFormResponses
+  getFormResponses,
+  getResponsesByEntity
 };
