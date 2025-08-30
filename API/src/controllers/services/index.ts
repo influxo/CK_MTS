@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import sequelize from '../../db/connection';
 import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
 import { createLogger } from '../../utils/logger';
-import { AuditLog, Service, ServiceAssignment, ServiceDelivery } from '../../models';
+import { AuditLog, Service, ServiceAssignment, ServiceDelivery, FormResponse } from '../../models';
 import { Op, fn, col } from 'sequelize';
 
 const logger = createLogger('services-controller');
@@ -46,11 +46,27 @@ const buildDeliveryWhere = (q: any) => {
   return where;
 };
 
+// Conditionally include FormResponse join when filtering by or grouping on form template
+const buildFormTemplateInclude = (q: any, requireForGrouping: boolean = false) => {
+  const hasTemplateFilter = !!q.formTemplateId || !!q.formTemplateIds;
+  if (!hasTemplateFilter && !requireForGrouping) return [] as any[];
+
+  const templateWhere: any = {};
+  if (q.formTemplateId) templateWhere.formTemplateId = q.formTemplateId;
+  if (q.formTemplateIds) {
+    const tids = Array.isArray(q.formTemplateIds) ? q.formTemplateIds : String(q.formTemplateIds).split(',');
+    templateWhere.formTemplateId = { [Op.in]: tids };
+  }
+
+  return [{ model: FormResponse, as: 'formResponse', attributes: [], where: Object.keys(templateWhere).length ? templateWhere : undefined }];
+};
+
 // GET /services/metrics/deliveries/count
 const metricsDeliveriesCount = async (req: Request, res: Response) => {
   try {
     const where = buildDeliveryWhere(req.query);
-    const total = await ServiceDelivery.count({ where });
+    const include = buildFormTemplateInclude(req.query);
+    const total = await ServiceDelivery.count({ where, include, distinct: true, col: 'ServiceDelivery.id' as any });
     return res.status(200).json({ success: true, data: { total } });
   } catch (error: any) {
     logger.error('Error computing deliveries count', { error: error.message });
@@ -62,9 +78,11 @@ const metricsDeliveriesCount = async (req: Request, res: Response) => {
 const metricsDeliveriesByUser = async (req: Request, res: Response) => {
   try {
     const where = buildDeliveryWhere(req.query);
+    const include = buildFormTemplateInclude(req.query);
     const rows = await ServiceDelivery.findAll({
-      attributes: ['staffUserId', [fn('COUNT', col('*')), 'count']],
       where,
+      include,
+      attributes: ['staffUserId', [fn('COUNT', col('*')), 'count']],
       group: ['staffUserId'],
       order: [[fn('COUNT', col('*')), 'DESC']],
     });
@@ -79,9 +97,11 @@ const metricsDeliveriesByUser = async (req: Request, res: Response) => {
 const metricsDeliveriesByBeneficiary = async (req: Request, res: Response) => {
   try {
     const where = buildDeliveryWhere(req.query);
+    const include = buildFormTemplateInclude(req.query);
     const rows = await ServiceDelivery.findAll({
-      attributes: ['beneficiaryId', [fn('COUNT', col('*')), 'count']],
       where,
+      include,
+      attributes: ['beneficiaryId', [fn('COUNT', col('*')), 'count']],
       group: ['beneficiaryId'],
       order: [[fn('COUNT', col('*')), 'DESC']],
     });
@@ -96,15 +116,114 @@ const metricsDeliveriesByBeneficiary = async (req: Request, res: Response) => {
 const metricsDeliveriesByService = async (req: Request, res: Response) => {
   try {
     const where = buildDeliveryWhere(req.query);
+    const include = buildFormTemplateInclude(req.query);
     const rows = await ServiceDelivery.findAll({
-      attributes: ['serviceId', [fn('COUNT', col('*')), 'count']],
       where,
+      include,
+      attributes: ['serviceId', [fn('COUNT', col('*')), 'count']],
       group: ['serviceId'],
       order: [[fn('COUNT', col('*')), 'DESC']],
     });
     return res.status(200).json({ success: true, items: rows });
   } catch (error: any) {
     logger.error('Error computing deliveries by service', { error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// GET /services/metrics/deliveries/by-form-template
+const metricsDeliveriesByFormTemplate = async (req: Request, res: Response) => {
+  try {
+    const where = buildDeliveryWhere(req.query);
+    // Require include for grouping on formTemplate
+    const include = buildFormTemplateInclude(req.query, true);
+    const rows = await ServiceDelivery.findAll({
+      where,
+      include,
+      attributes: [[col('formResponse.formTemplateId'), 'formTemplateId'], [fn('COUNT', col('*')), 'count']],
+      group: [col('formResponse.formTemplateId') as any],
+      order: [[fn('COUNT', col('*')), 'DESC']],
+      raw: true,
+    });
+    return res.status(200).json({ success: true, items: rows });
+  } catch (error: any) {
+    logger.error('Error computing deliveries by form template', { error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// GET /services/metrics/deliveries/series
+const metricsDeliveriesSeries = async (req: Request, res: Response) => {
+  try {
+    const where = buildDeliveryWhere(req.query);
+    const unitRaw = String((req.query.groupBy as string) || 'month').toLowerCase();
+    const allowedUnits = new Set(['day', 'week', 'month', 'quarter', 'year']);
+    const unit: 'day' | 'week' | 'month' | 'quarter' | 'year' = (allowedUnits.has(unitRaw) ? unitRaw : 'month') as any;
+
+    // Optional secondary grouping (dimension)
+    const groupFieldRaw = (req.query.groupField as string) || '';
+    let groupColumn: 'serviceId' | 'staffUserId' | 'beneficiaryId' | 'formTemplateId' | null = null;
+    if (groupFieldRaw === 'service') groupColumn = 'serviceId';
+    else if (groupFieldRaw === 'user') groupColumn = 'staffUserId';
+    else if (groupFieldRaw === 'beneficiary') groupColumn = 'beneficiaryId';
+    else if (groupFieldRaw === 'formTemplate') groupColumn = 'formTemplateId';
+
+    const bucketExpr = fn('date_trunc', unit, col('deliveredAt'));
+
+    const attributes: any[] = [
+      [bucketExpr, 'periodStart'],
+      ...(groupColumn === 'formTemplateId' ? [[col('formResponse.formTemplateId'), 'formTemplateId']] : groupColumn ? [groupColumn] : []),
+      [fn('COUNT', col('*')), 'count'],
+    ];
+
+    const group: any[] = groupColumn
+      ? [bucketExpr, groupColumn === 'formTemplateId' ? (col('formResponse.formTemplateId') as any) : groupColumn]
+      : [bucketExpr];
+
+    // Include join when filtering by or grouping on formTemplate
+    const include = buildFormTemplateInclude(req.query, groupColumn === 'formTemplateId');
+
+    const rows = await ServiceDelivery.findAll({
+      where,
+      include,
+      attributes,
+      group,
+      order: [[col('periodStart'), 'ASC']],
+      raw: true,
+    }) as any[];
+
+    // Normalize periodStart to Date and counts to number
+    const items = rows.map((r: any) => ({
+      periodStart: new Date(r.periodStart),
+      ...(groupColumn ? { [groupColumn!]: r[groupColumn!] } : {}),
+      count: Number(r.count || 0),
+    }));
+
+    return res.status(200).json({ success: true, items, granularity: unit, groupedBy: groupColumn || null });
+  } catch (error: any) {
+    logger.error('Error computing deliveries time series', { error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// GET /services/metrics/deliveries/summary
+const metricsDeliveriesSummary = async (req: Request, res: Response) => {
+  try {
+    const where = buildDeliveryWhere(req.query);
+    const include = buildFormTemplateInclude(req.query);
+    const [totalDeliveries, uniqueBeneficiaries, uniqueStaff, uniqueServices] = await Promise.all([
+      ServiceDelivery.count({ where, include, distinct: true, col: 'ServiceDelivery.id' as any }),
+      ServiceDelivery.count({ where, include, distinct: true, col: 'beneficiaryId' as any }),
+      ServiceDelivery.count({ where, include, distinct: true, col: 'staffUserId' as any }),
+      ServiceDelivery.count({ where, include, distinct: true, col: 'serviceId' as any }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: { totalDeliveries, uniqueBeneficiaries, uniqueStaff, uniqueServices },
+    });
+  } catch (error: any) {
+    logger.error('Error computing deliveries summary', { error: error.message });
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
@@ -399,4 +518,7 @@ export default {
   metricsDeliveriesByUser,
   metricsDeliveriesByBeneficiary,
   metricsDeliveriesByService,
+  metricsDeliveriesByFormTemplate,
+  metricsDeliveriesSeries,
+  metricsDeliveriesSummary,
 };

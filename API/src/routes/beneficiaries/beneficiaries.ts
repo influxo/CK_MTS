@@ -75,6 +75,30 @@ router.get(
 
 /**
  * @swagger
+ * /beneficiaries/demographics:
+ *   get:
+ *     summary: Aggregate beneficiary demographics (age buckets and gender)
+ *     description: Decrypts PII to compute aggregates. Strictly restricted. Response is marked no-store.
+ *     tags: [Beneficiaries]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Demographics aggregates
+ *       403:
+ *         description: Forbidden
+ */
+router.get(
+  '/demographics',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  (req: Request, res: Response): void => {
+    beneficiariesController.demographics(req, res);
+  }
+);
+
+/**
+ * @swagger
  * /beneficiaries/{id}:
  *   get:
  *     summary: Get a beneficiary by ID
@@ -159,6 +183,9 @@ router.get(
  *               phone: { type: string }
  *               email: { type: string, format: email }
  *               address: { type: string }
+ *               gender: { type: string, enum: [M, F] }
+ *               municipality: { type: string }
+ *               nationality: { type: string }
  *               status: { type: string, enum: [active, inactive] }
  *     responses:
  *       201:
@@ -202,6 +229,9 @@ router.post(
  *               phone: { type: string }
  *               email: { type: string, format: email }
  *               address: { type: string }
+ *               gender: { type: string, enum: [M, F] }
+ *               municipality: { type: string }
+ *               nationality: { type: string }
  *               status: { type: string, enum: [active, inactive] }
  *     responses:
  *       200:

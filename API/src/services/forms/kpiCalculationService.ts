@@ -47,6 +47,33 @@ class KpiCalculationService {
       whereClause.entityType = 'activity';
     }
 
+    // Beneficiary filters (static Beneficiary model is referenced via FormResponse.beneficiaryId)
+    if (filters.beneficiaryId) {
+      whereClause.beneficiaryId = filters.beneficiaryId;
+    }
+    if (filters.beneficiaryIds && filters.beneficiaryIds.length) {
+      whereClause.beneficiaryId = { [Op.in]: filters.beneficiaryIds };
+    }
+
+    // Form template filters (FormResponse.formTemplateId)
+    if (filters.formTemplateId) {
+      whereClause.formTemplateId = filters.formTemplateId;
+    }
+    if (filters.formTemplateIds && filters.formTemplateIds.length) {
+      whereClause.formTemplateId = { [Op.in]: filters.formTemplateIds };
+    }
+
+    // Service filters: constrain to FormResponses that have ServiceDeliveries for given service(s)
+    // Use a subquery to avoid needing a join in COUNT/SUM style queries
+    const serviceFilterLiterals: any[] = [];
+    if (filters.serviceId) {
+      serviceFilterLiterals.push(literal(`id IN (SELECT "formResponseId" FROM service_deliveries WHERE "serviceId" = '${this.esc(filters.serviceId)}')`));
+    }
+    if (filters.serviceIds && filters.serviceIds.length) {
+      const list = filters.serviceIds.map(id => `'${this.esc(id)}'`).join(',');
+      serviceFilterLiterals.push(literal(`id IN (SELECT "formResponseId" FROM service_deliveries WHERE "serviceId" IN (${list}))`));
+    }
+
     const andLiterals: any[] = [];
 
     // KPI stored filter criteria (JSONB containment)
@@ -58,6 +85,11 @@ class KpiCalculationService {
     // Request-level data filters
     if (filters.dataFilters && Array.isArray(filters.dataFilters)) {
       andLiterals.push(...this.buildDataFilterLiterals(filters.dataFilters));
+    }
+
+    // Apply service subquery filters if any
+    if (serviceFilterLiterals.length) {
+      andLiterals.push(...serviceFilterLiterals);
     }
 
     if (andLiterals.length) {
@@ -514,6 +546,12 @@ export interface KpiFilterOptions {
   subprojectId?: string;
   activityId?: string;
   dataFilters?: DataFilterCondition[];
+  beneficiaryId?: string;
+  beneficiaryIds?: string[];
+  serviceId?: string;
+  serviceIds?: string[];
+  formTemplateId?: string;
+  formTemplateIds?: string[];
 }
 
 export interface KpiResult {

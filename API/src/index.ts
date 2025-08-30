@@ -22,7 +22,7 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(loggerMiddleware);
 
 // Swagger documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {swaggerOptions: {persistAuthorization: true}}));
 
 // Routes
 app.use('/api', routes);

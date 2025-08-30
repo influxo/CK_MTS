@@ -1,30 +1,14 @@
 import { Request, Response } from "express";
-import { FormTemplate, FormResponse, User, AuditLog, Beneficiary, BeneficiaryMapping, ServiceAssignment, ServiceDelivery, Activity, Service } from "../../models";
+import { FormTemplate, FormResponse, User, AuditLog, Beneficiary, ServiceAssignment, ServiceDelivery, Activity, Service } from "../../models";
 import FormEntityAssociation from "../../models/FormEntityAssociation";
 import { v4 as uuidv4 } from "uuid";
 import { createLogger } from "../../utils/logger";
 import { Op } from "sequelize";
 import sequelize from "../../db/connection";
 import validateFormResponse from "../../services/forms/validateFormResponse";
-import beneficiariesService from "../../services/beneficiaries/beneficiariesService";
 
 // Create a logger instance for this module
 const logger = createLogger('forms-responses-controller');
-
-// Helper to remove a value at a dot-separated path from an object
-const deleteByPath = (obj: any, path?: string) => {
-  if (!obj || !path) return;
-  const parts = path.split('.');
-  let cur = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const p = parts[i];
-    if (cur == null || typeof cur !== 'object') return;
-    cur = cur[p];
-  }
-  if (cur && typeof cur === 'object') {
-    delete cur[parts[parts.length - 1]];
-  }
-};
 
 /**
  * Submit a form response
@@ -95,33 +79,18 @@ export const submitFormResponse = async (req: Request, res: Response) => {
         };
       }
 
-      // Upsert beneficiary inside the same transaction using mapping for this template
-      let beneficiaryId: string | undefined;
-      try {
-        const upsert = await beneficiariesService.upsertFromFormResponse(
-          id,
-          validationResult.data,
-          { entityId, entityType },
-          { transaction, userId: req.user.id }
-        );
-        beneficiaryId = upsert.beneficiaryId;
-      } catch (e) {
-        logger.error('Beneficiary upsert failed, proceeding without linkage', { templateId: id, entityId, entityType, error: (e as any)?.message });
+      // Direct beneficiary association: accept beneficiaryId from request (optional)
+      let beneficiaryId: string | undefined = req.body.beneficiaryId || undefined;
+      if (beneficiaryId) {
+        const exists = await Beneficiary.findByPk(beneficiaryId, { transaction });
+        if (!exists) {
+          logger.warn('Provided beneficiaryId not found', { beneficiaryId });
+          return { success: false, status: 400, message: 'Invalid beneficiaryId: beneficiary not found' };
+        }
       }
 
-      // Redact mapped PII fields from form data before storing
-      let sanitizedData: any = JSON.parse(JSON.stringify(validationResult.data));
-      try {
-        const mapping = await BeneficiaryMapping.findOne({ where: { formTemplateId: id }, transaction });
-        const fields = mapping?.mapping?.fields || {};
-        for (const path of Object.values(fields)) {
-          if (typeof path === 'string' && path.trim()) {
-            deleteByPath(sanitizedData, path);
-          }
-        }
-      } catch (_) {
-        // If mapping lookup fails, proceed with unredacted data
-      }
+      // No PII redaction needed now that we do not map PII from form fields
+      const sanitizedData: any = validationResult.data;
 
       // Create the form response
       logger.info('Creating form response', { templateId: id, userId: req.user.id });
@@ -532,8 +501,6 @@ export const getResponsesByEntity = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-
-// Removed manual validation in favor of AJV validation service
 
 export default {
   submitFormResponse,

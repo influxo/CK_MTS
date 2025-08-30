@@ -40,7 +40,10 @@ type BeneficiaryInput = {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
+  gender?: 'M' | 'F' | null;
   status?: 'active' | 'inactive';
+  municipality?: string | null;
+  nationality?: string | null;
 };
 
 const buildCandidateKeysFromInput = (input: BeneficiaryInput): Array<{ keyType: string; keyHash: string }> => {
@@ -93,6 +96,12 @@ export async function upsertFromFormResponse(
   const phoneRaw = String(getByPath(data, fields.phone) ?? '').trim() || undefined;
   const email = String(getByPath(data, fields.email) ?? '').trim() || undefined;
   const address = String(getByPath(data, fields.address) ?? '').trim() || undefined;
+  const municipality = String(getByPath(data, fields.municipality) ?? '').trim() || undefined;
+  const nationality = String(getByPath(data, fields.nationality) ?? '').trim() || undefined;
+  const genderRaw = String(getByPath(data, fields.gender) ?? '').trim() || undefined;
+  const gender = genderRaw
+    ? (genderRaw.toUpperCase().startsWith('M') ? 'M' : genderRaw.toUpperCase().startsWith('F') ? 'F' : undefined)
+    : undefined;
 
   const normName = `${normalizeName(firstName)} ${normalizeName(lastName)}`.trim();
   const normDob = normalizeDob(dobRaw);
@@ -135,6 +144,9 @@ export async function upsertFromFormResponse(
       phoneEnc: phoneRaw ? encryptField(normPhone) : undefined,
       emailEnc: email ? encryptField(email) : undefined,
       addressEnc: address ? encryptField(address) : undefined,
+      municipalityEnc: municipality ? encryptField(municipality) : undefined,
+      nationalityEnc: nationality ? encryptField(nationality) : undefined,
+      genderEnc: gender ? encryptField(gender) : undefined,
     }, {
       where: { id: existingBeneficiaryId },
       transaction: opts.transaction,
@@ -167,6 +179,9 @@ export async function upsertFromFormResponse(
     phoneEnc: phoneRaw ? encryptField(normPhone) : null,
     emailEnc: email ? encryptField(email) : null,
     addressEnc: address ? encryptField(address) : null,
+    municipalityEnc: municipality ? encryptField(municipality) : null,
+    nationalityEnc: nationality ? encryptField(nationality) : null,
+    genderEnc: gender ? encryptField(gender) : null,
   }, { transaction: opts.transaction });
 
   for (const { keyType, keyHash } of candidateKeys) {
@@ -195,6 +210,9 @@ export default {
       phoneEnc: encryptField(normPhone || null),
       emailEnc: encryptField(input.email ?? null),
       addressEnc: encryptField(input.address ?? null),
+      genderEnc: encryptField(input.gender ?? null),
+      municipalityEnc: encryptField(input.municipality ?? null),
+      nationalityEnc: encryptField(input.nationality ?? null),
     }, { transaction: opts.transaction });
 
     // Create match keys
@@ -223,6 +241,9 @@ export default {
     if (input.phone !== undefined) update.phoneEnc = encryptField(normPhone || null);
     if (input.email !== undefined) update.emailEnc = encryptField(input.email);
     if (input.address !== undefined) update.addressEnc = encryptField(input.address);
+    if (input.gender !== undefined) update.genderEnc = encryptField(input.gender ?? null);
+    if (input.municipality !== undefined) update.municipalityEnc = encryptField(input.municipality);
+    if (input.nationality !== undefined) update.nationalityEnc = encryptField(input.nationality);
 
     await existing.update(update, { transaction: opts.transaction });
 
@@ -235,6 +256,8 @@ export default {
       phone: normPhone,
       email: input.email,
       address: input.address,
+      municipality: input.municipality,
+      nationality: input.nationality,
     });
     for (const { keyType, keyHash } of keys) {
       try {
@@ -270,6 +293,9 @@ export default {
         'phoneEnc',
         'emailEnc',
         'addressEnc',
+        'genderEnc',
+        'municipalityEnc',
+        'nationalityEnc',
       );
     }
     const { rows, count } = await Beneficiary.findAndCountAll({
@@ -289,6 +315,9 @@ export default {
         base.phoneEnc = r.get('phoneEnc');
         base.emailEnc = r.get('emailEnc');
         base.addressEnc = r.get('addressEnc');
+        base.genderEnc = r.get('genderEnc');
+        base.municipalityEnc = r.get('municipalityEnc');
+        base.nationalityEnc = r.get('nationalityEnc');
       }
       return base;
     });

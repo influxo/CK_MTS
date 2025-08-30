@@ -41,6 +41,9 @@ const list = async (req: Request, res: Response) => {
           phoneEnc: it.phoneEnc,
           emailEnc: it.emailEnc,
           addressEnc: it.addressEnc,
+          genderEnc: it.genderEnc,
+          municipalityEnc: it.municipalityEnc,
+          nationalityEnc: it.nationalityEnc,
         },
         pii: {
           firstName: decryptField(it.firstNameEnc as any),
@@ -50,6 +53,9 @@ const list = async (req: Request, res: Response) => {
           phone: decryptField(it.phoneEnc as any),
           email: decryptField(it.emailEnc as any),
           address: decryptField(it.addressEnc as any),
+          gender: decryptField(it.genderEnc as any),
+          municipality: decryptField(it.municipalityEnc as any),
+          nationality: decryptField(it.nationalityEnc as any),
         },
       }));
 
@@ -85,6 +91,9 @@ const list = async (req: Request, res: Response) => {
           phoneEnc: it.phoneEnc,
           emailEnc: it.emailEnc,
           addressEnc: it.addressEnc,
+          genderEnc: it.genderEnc,
+          municipalityEnc: it.municipalityEnc,
+          nationalityEnc: it.nationalityEnc,
         },
       }));
     }
@@ -128,6 +137,9 @@ const getById = async (req: Request, res: Response) => {
           phoneEnc: b.get('phoneEnc'),
           emailEnc: b.get('emailEnc'),
           addressEnc: b.get('addressEnc'),
+          genderEnc: b.get('genderEnc'),
+          municipalityEnc: b.get('municipalityEnc'),
+          nationalityEnc: b.get('nationalityEnc'),
         };
         const pii = {
           firstName: decryptField(piiEnc.firstNameEnc as any),
@@ -137,6 +149,9 @@ const getById = async (req: Request, res: Response) => {
           phone: decryptField(piiEnc.phoneEnc as any),
           email: decryptField(piiEnc.emailEnc as any),
           address: decryptField(piiEnc.addressEnc as any),
+          gender: decryptField(piiEnc.genderEnc as any),
+          municipality: decryptField(piiEnc.municipalityEnc as any),
+          nationality: decryptField(piiEnc.nationalityEnc as any),
         };
 
         await AuditLog.create({
@@ -160,6 +175,9 @@ const getById = async (req: Request, res: Response) => {
         phoneEnc: b.get('phoneEnc'),
         emailEnc: b.get('emailEnc'),
         addressEnc: b.get('addressEnc'),
+        genderEnc: b.get('genderEnc'),
+        municipalityEnc: b.get('municipalityEnc'),
+        nationalityEnc: b.get('nationalityEnc'),
       };
 
       return { data: { ...base, piiEnc } };
@@ -199,6 +217,9 @@ const getPIIById = async (req: Request, res: Response) => {
         phone: decryptField(b.get('phoneEnc') as any),
         email: decryptField(b.get('emailEnc') as any),
         address: decryptField(b.get('addressEnc') as any),
+        gender: decryptField(b.get('genderEnc') as any),
+        municipality: decryptField(b.get('municipalityEnc') as any),
+        nationality: decryptField(b.get('nationalityEnc') as any),
       } as const;
 
       await AuditLog.create({
@@ -233,7 +254,10 @@ const create = async (req: Request, res: Response) => {
     phone: req.body?.phone ?? null,
     email: req.body?.email ?? null,
     address: req.body?.address ?? null,
+    gender: req.body?.gender ?? null,
     status: req.body?.status ?? 'active',
+    municipality: req.body?.municipality ?? null,
+    nationality: req.body?.nationality ?? null,
   } as any;
 
   try {
@@ -269,7 +293,10 @@ const update = async (req: Request, res: Response) => {
     phone: req.body?.phone,
     email: req.body?.email,
     address: req.body?.address,
+    gender: req.body?.gender,
     status: req.body?.status,
+    municipality: req.body?.municipality,
+    nationality: req.body?.nationality,
   } as any;
 
   try {
@@ -365,4 +392,86 @@ export default {
   update,
   setStatus,
   remove,
+  async demographics(req: Request, res: Response) {
+    try {
+      const roles = req.userRoles || [];
+      const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
+      const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+      if (!canDecrypt) {
+        return res.status(403).json({ success: false, message: 'Forbidden' });
+      }
+
+      const beneficiaries = await Beneficiary.findAll({
+        attributes: ['dobEnc', 'genderEnc'],
+        order: [['createdAt', 'DESC']],
+      });
+
+      const now = new Date();
+      const ageBuckets: Record<string, number> = { '0-20': 0, '19-35': 0, '36-55': 0, '55+': 0 };
+      const genderCounts: Record<string, number> = { M: 0, F: 0, Unknown: 0 };
+
+      const calcAge = (dobIso?: string | null) => {
+        if (!dobIso) return null;
+        const d = new Date(dobIso);
+        if (isNaN(d.getTime())) return null;
+        let age = now.getFullYear() - d.getFullYear();
+        const m = now.getMonth() - d.getMonth();
+        if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+        return age;
+      };
+
+      for (const b of beneficiaries) {
+        const dob = decryptField(b.get('dobEnc') as any) as string | null;
+        const gender = (decryptField(b.get('genderEnc') as any) as 'M' | 'F' | null) || null;
+
+        const age = calcAge(dob);
+        if (age != null) {
+          if (age <= 20) ageBuckets['0-20']++;
+          else if (age <= 35) ageBuckets['19-35']++;
+          else if (age <= 55) ageBuckets['36-55']++;
+          else ageBuckets['55+']++;
+        }
+
+        if (gender === 'M') genderCounts.M++;
+        else if (gender === 'F') genderCounts.F++;
+        else genderCounts.Unknown++;
+      }
+
+      // Audit aggregate PII read
+      try {
+        await AuditLog.create({
+          id: uuidv4(),
+          userId: req.user.id,
+          action: 'BENEFICIARY_PII_AGGREGATE',
+          description: 'Computed beneficiary demographics',
+          details: JSON.stringify({ total: beneficiaries.length }),
+          timestamp: new Date(),
+        });
+      } catch (_) { /* ignore */ }
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('X-PII-Access', 'decrypt');
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          age: [
+            { name: '0-20', value: ageBuckets['0-20'] },
+            { name: '19-35', value: ageBuckets['19-35'] },
+            { name: '36-55', value: ageBuckets['36-55'] },
+            { name: '55+', value: ageBuckets['55+'] },
+          ],
+          gender: [
+            { name: 'Male', count: genderCounts.M },
+            { name: 'Female', count: genderCounts.F },
+            { name: 'Unknown', count: genderCounts.Unknown },
+          ],
+        },
+      });
+    } catch (error: any) {
+      logger.error('Error computing demographics', { error: error.message });
+      return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+  },
 };

@@ -118,6 +118,13 @@ export const calculateKpiSeries = async (req: Request, res: Response) => {
     if (req.query.projectId) filters.projectId = req.query.projectId as string;
     if (req.query.subprojectId) filters.subprojectId = req.query.subprojectId as string;
     if (req.query.activityId) filters.activityId = req.query.activityId as string;
+    // New filters
+    if (req.query.beneficiaryId) filters.beneficiaryId = req.query.beneficiaryId as string;
+    if (req.query.beneficiaryIds) filters.beneficiaryIds = String(req.query.beneficiaryIds).split(',').filter(Boolean);
+    if (req.query.serviceId) filters.serviceId = req.query.serviceId as string;
+    if (req.query.serviceIds) filters.serviceIds = String(req.query.serviceIds).split(',').filter(Boolean);
+    if (req.query.formTemplateId) filters.formTemplateId = req.query.formTemplateId as string;
+    if (req.query.formTemplateIds) filters.formTemplateIds = String(req.query.formTemplateIds).split(',').filter(Boolean);
 
     // Validate and set groupBy
     const allowed = ['day', 'week', 'month', 'quarter', 'year'];
@@ -397,6 +404,13 @@ export const calculateKpi = async (req: Request, res: Response) => {
     if (req.query.projectId) filters.projectId = req.query.projectId as string;
     if (req.query.subprojectId) filters.subprojectId = req.query.subprojectId as string;
     if (req.query.activityId) filters.activityId = req.query.activityId as string;
+    // New filters
+    if (req.query.beneficiaryId) filters.beneficiaryId = req.query.beneficiaryId as string;
+    if (req.query.beneficiaryIds) filters.beneficiaryIds = String(req.query.beneficiaryIds).split(',').filter(Boolean);
+    if (req.query.serviceId) filters.serviceId = req.query.serviceId as string;
+    if (req.query.serviceIds) filters.serviceIds = String(req.query.serviceIds).split(',').filter(Boolean);
+    if (req.query.formTemplateId) filters.formTemplateId = req.query.formTemplateId as string;
+    if (req.query.formTemplateIds) filters.formTemplateIds = String(req.query.formTemplateIds).split(',').filter(Boolean);
     
     // Calculate the KPI
     const result = await kpiCalculationService.calculateKpi(id, filters);
@@ -438,6 +452,13 @@ export const calculateAllKpisForEntity = async (req: Request, res: Response) => 
     
     if (req.query.fromDate) filters.fromDate = new Date(req.query.fromDate as string);
     if (req.query.toDate) filters.toDate = new Date(req.query.toDate as string);
+    // Optional refinements
+    if (req.query.beneficiaryId) filters.beneficiaryId = req.query.beneficiaryId as string;
+    if (req.query.beneficiaryIds) filters.beneficiaryIds = String(req.query.beneficiaryIds).split(',').filter(Boolean);
+    if (req.query.serviceId) filters.serviceId = req.query.serviceId as string;
+    if (req.query.serviceIds) filters.serviceIds = String(req.query.serviceIds).split(',').filter(Boolean);
+    if (req.query.formTemplateId) filters.formTemplateId = req.query.formTemplateId as string;
+    if (req.query.formTemplateIds) filters.formTemplateIds = String(req.query.formTemplateIds).split(',').filter(Boolean);
     
     // Calculate all KPIs
     const results = await kpiCalculationService.calculateAllKpisForEntity(entityId, entityType, filters);
