@@ -1,5 +1,5 @@
 import { Op, fn, col, where, literal } from 'sequelize';
-import { FormResponse, FormField, Kpi } from '../../models';
+import { FormResponse, FormField, Kpi, ServiceDelivery } from '../../models';
 import { createLogger } from '../../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -178,6 +178,7 @@ class KpiCalculationService {
     }
     return parts;
   }
+
   /**
    * Calculate KPI values based on specific criteria
    */
@@ -534,6 +535,237 @@ class KpiCalculationService {
       throw new Error(`Error getting KPI fields: ${error.message}`);
     }
   }
+
+  /**
+   * Helper: where clause for FormResponse-focused queries
+   */
+  private buildResponseWhere(filters: KpiFilterOptions, extraAnd: any[] = []): any {
+    const whereClause: any = {};
+
+    // Date filters use submittedAt
+    if (filters.fromDate && filters.toDate) {
+      whereClause.submittedAt = { [Op.between]: [filters.fromDate, filters.toDate] };
+    } else if (filters.fromDate) {
+      whereClause.submittedAt = { [Op.gte]: filters.fromDate };
+    } else if (filters.toDate) {
+      whereClause.submittedAt = { [Op.lte]: filters.toDate };
+    }
+
+    // Entity filters
+    if (filters.entityId && filters.entityType) {
+      whereClause.entityId = filters.entityId;
+      whereClause.entityType = filters.entityType;
+    } else if (filters.projectId) {
+      whereClause.entityId = filters.projectId;
+      whereClause.entityType = 'project';
+    } else if (filters.subprojectId) {
+      whereClause.entityId = filters.subprojectId;
+      whereClause.entityType = 'subproject';
+    } else if (filters.activityId) {
+      whereClause.entityId = filters.activityId;
+      whereClause.entityType = 'activity';
+    } else if (filters.entityId) {
+      whereClause.entityId = filters.entityId;
+    }
+
+    // Beneficiary/Form filters
+    if (filters.beneficiaryId) whereClause.beneficiaryId = filters.beneficiaryId;
+    if (filters.beneficiaryIds && filters.beneficiaryIds.length) whereClause.beneficiaryId = { [Op.in]: filters.beneficiaryIds };
+    if (filters.formTemplateId) whereClause.formTemplateId = filters.formTemplateId;
+    if (filters.formTemplateIds && filters.formTemplateIds.length) whereClause.formTemplateId = { [Op.in]: filters.formTemplateIds };
+
+    // Optional ad-hoc data filters
+    const ands: any[] = [];
+    if (filters.dataFilters && Array.isArray(filters.dataFilters)) {
+      ands.push(...this.buildDataFilterLiterals(filters.dataFilters));
+    }
+
+    if (extraAnd.length || ands.length) {
+      (whereClause as any)[Op.and] = [ ...(((whereClause as any)[Op.and] as any[]) || []), ...ands, ...extraAnd ];
+    }
+
+    return whereClause;
+  }
+
+  /**
+   * Helper: where clause for ServiceDelivery-focused queries
+   */
+  private buildDeliveryWhere(filters: KpiFilterOptions, extraAnd: any[] = []): any {
+    const whereClause: any = {};
+
+    // Date filters use deliveredAt
+    if (filters.fromDate && filters.toDate) {
+      whereClause.deliveredAt = { [Op.between]: [filters.fromDate, filters.toDate] };
+    } else if (filters.fromDate) {
+      whereClause.deliveredAt = { [Op.gte]: filters.fromDate };
+    } else if (filters.toDate) {
+      whereClause.deliveredAt = { [Op.lte]: filters.toDate };
+    }
+
+    // Entity filters
+    if (filters.entityId && filters.entityType) {
+      whereClause.entityId = filters.entityId;
+      whereClause.entityType = filters.entityType;
+    } else if (filters.projectId) {
+      whereClause.entityId = filters.projectId;
+      whereClause.entityType = 'project';
+    } else if (filters.subprojectId) {
+      whereClause.entityId = filters.subprojectId;
+      whereClause.entityType = 'subproject';
+    } else if (filters.activityId) {
+      whereClause.entityId = filters.activityId;
+      whereClause.entityType = 'activity';
+    } else if (filters.entityId) {
+      whereClause.entityId = filters.entityId;
+    }
+
+    // Service / Beneficiary filters
+    if (filters.serviceId) whereClause.serviceId = filters.serviceId;
+    if (filters.serviceIds && filters.serviceIds.length) whereClause.serviceId = { [Op.in]: filters.serviceIds };
+    if (filters.beneficiaryId) whereClause.beneficiaryId = filters.beneficiaryId;
+    if (filters.beneficiaryIds && filters.beneficiaryIds.length) whereClause.beneficiaryId = { [Op.in]: filters.beneficiaryIds };
+
+    if (extraAnd.length) {
+      (whereClause as any)[Op.and] = [ ...(((whereClause as any)[Op.and] as any[]) || []), ...extraAnd ];
+    }
+
+    return whereClause;
+  }
+
+  /**
+   * Dynamic summary metrics from core data (no KPI definitions required)
+   */
+  async calculateDynamicSummary(filters: KpiFilterOptions): Promise<DynamicSummary> {
+    try {
+      // Responses side
+      const respWhere = this.buildResponseWhere(filters);
+      const submissions = await FormResponse.count({ where: respWhere });
+
+      // Unique beneficiaries from responses (where beneficiaryId is not null)
+      const uniqueBeneficiariesByResponsesRows = await FormResponse.findAll({
+        where: {
+          ...respWhere,
+          beneficiaryId: { [Op.ne]: null },
+        },
+        attributes: [[literal('COUNT(DISTINCT "beneficiaryId")') as any, 'count']],
+        raw: true,
+      }) as any[];
+      const uniqueBeneficiariesByResponses = Number(uniqueBeneficiariesByResponsesRows[0]?.count ?? 0);
+
+      // Deliveries side
+      const delivWhere = this.buildDeliveryWhere(filters);
+      const serviceDeliveries = await ServiceDelivery.count({ where: delivWhere });
+
+      const uniqueBeneficiariesByDeliveriesRows = await ServiceDelivery.findAll({
+        where: delivWhere,
+        attributes: [[literal('COUNT(DISTINCT "beneficiaryId")') as any, 'count']],
+        raw: true,
+      }) as any[];
+      const uniqueBeneficiariesByDeliveries = Number(uniqueBeneficiariesByDeliveriesRows[0]?.count ?? 0);
+
+      // Distincts
+      const formTemplatesUsedRows = await FormResponse.findAll({
+        where: respWhere,
+        attributes: [[literal('COUNT(DISTINCT "formTemplateId")') as any, 'count']],
+        raw: true,
+      }) as any[];
+      const formTemplatesUsed = Number(formTemplatesUsedRows[0]?.count ?? 0);
+
+      const servicesUsedRows = await ServiceDelivery.findAll({
+        where: delivWhere,
+        attributes: [[literal('COUNT(DISTINCT "serviceId")') as any, 'count']],
+        raw: true,
+      }) as any[];
+      const servicesUsed = Number(servicesUsedRows[0]?.count ?? 0);
+
+      return {
+        submissions,
+        uniqueBeneficiariesByResponses,
+        serviceDeliveries,
+        uniqueBeneficiariesByDeliveries,
+        formTemplatesUsed,
+        servicesUsed,
+        timestamp: new Date(),
+      };
+    } catch (error: any) {
+      logger.error(`Error calculating dynamic KPI summary: ${error.message}`);
+      throw new Error(`Error calculating dynamic KPI summary: ${error.message}`);
+    }
+  }
+
+  /**
+   * Dynamic time series for a given metric
+   */
+  async calculateDynamicSeries(
+    metric: 'submissions' | 'serviceDeliveries' | 'uniqueBeneficiaries',
+    filters: KpiFilterOptions & { groupBy: 'day' | 'week' | 'month' | 'quarter' | 'year' }
+  ): Promise<DynamicSeriesResult> {
+    try {
+      const unit = filters.groupBy;
+
+      if (metric === 'submissions') {
+        const where = this.buildResponseWhere(filters);
+        const bucketExpr = fn('date_trunc', unit, col('submittedAt'));
+        const rows = await FormResponse.findAll({
+          where,
+          attributes: [
+            [bucketExpr, 'periodStart'],
+            [literal('COUNT(*)') as any, 'value'],
+          ],
+          group: [bucketExpr],
+          order: [[col('periodStart'), 'ASC']],
+          raw: true,
+        }) as any[];
+        return {
+          metric,
+          granularity: unit,
+          series: rows.map(r => ({ periodStart: new Date(r.periodStart), value: Number(r.value ?? 0) })),
+        };
+      }
+
+      if (metric === 'serviceDeliveries') {
+        const where = this.buildDeliveryWhere(filters);
+        const bucketExpr = fn('date_trunc', unit, col('deliveredAt'));
+        const rows = await ServiceDelivery.findAll({
+          where,
+          attributes: [
+            [bucketExpr, 'periodStart'],
+            [literal('COUNT(*)') as any, 'value'],
+          ],
+          group: [bucketExpr],
+          order: [[col('periodStart'), 'ASC']],
+          raw: true,
+        }) as any[];
+        return {
+          metric,
+          granularity: unit,
+          series: rows.map(r => ({ periodStart: new Date(r.periodStart), value: Number(r.value ?? 0) })),
+        };
+      }
+
+      // uniqueBeneficiaries: count distinct beneficiaryId per bucket using ServiceDelivery (served)
+      const where = this.buildDeliveryWhere(filters, [literal('"beneficiaryId" IS NOT NULL')]);
+      const bucketExpr = fn('date_trunc', unit, col('deliveredAt'));
+      const rows = await ServiceDelivery.findAll({
+        where,
+        attributes: [
+          [bucketExpr, 'periodStart'],
+          [literal('COUNT(DISTINCT "beneficiaryId")') as any, 'value'],
+        ],
+        group: [bucketExpr],
+        order: [[col('periodStart'), 'ASC']],
+        raw: true,
+      }) as any[];
+      return {
+        metric,
+        granularity: unit,
+        series: rows.map(r => ({ periodStart: new Date(r.periodStart), value: Number(r.value ?? 0) })),
+      };
+    } catch (error: any) {
+      logger.error(`Error calculating dynamic KPI series: ${error.message}`);
+      throw new Error(`Error calculating dynamic KPI series: ${error.message}`);
+    }
+  }
 }
 
 // Define interfaces for the service
@@ -577,6 +809,22 @@ export interface KpiSeriesResult {
   name: string;
   fieldName: string;
   calculationType: string;
+  granularity: 'day' | 'week' | 'month' | 'quarter' | 'year';
+  series: Array<{ periodStart: Date; value: number }>;
+}
+
+export interface DynamicSummary {
+  submissions: number;
+  uniqueBeneficiariesByResponses: number;
+  serviceDeliveries: number;
+  uniqueBeneficiariesByDeliveries: number;
+  formTemplatesUsed: number;
+  servicesUsed: number;
+  timestamp: Date;
+}
+
+export interface DynamicSeriesResult {
+  metric: 'submissions' | 'serviceDeliveries' | 'uniqueBeneficiaries';
   granularity: 'day' | 'week' | 'month' | 'quarter' | 'year';
   series: Array<{ periodStart: Date; value: number }>;
 }

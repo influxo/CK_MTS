@@ -4,6 +4,7 @@ import { Role, Permission, RolePermission } from '../../models';
 import User, { UserWithRoles } from '../../models/User';
 import { ROLES, RESOURCES, ACTIONS } from '../../constants/roles';
 import sequelize from '../connection';
+import { seedProjectsBeneficiaries } from './seedProjectsBeneficiaries';
 
 /**
  * Create default roles and permissions in the database
@@ -228,6 +229,8 @@ export async function seed() {
       const roles = await createRolesAndPermissions();
       await createDefaultUsers(roles);
     });
+    
+    await seedProjectsBeneficiaries();
     
     console.log('Seed completed successfully!');
   } catch (error) {

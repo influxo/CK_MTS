@@ -500,6 +500,79 @@ export const getFormFields = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Dynamic metrics summary (no KPI definitions)
+ */
+export const getMetricsSummary = async (req: Request, res: Response) => {
+  logger.info('Calculating dynamic metrics summary');
+  try {
+    const filters: KpiFilterOptions = {};
+    if (req.query.fromDate) filters.fromDate = new Date(req.query.fromDate as string);
+    if (req.query.toDate) filters.toDate = new Date(req.query.toDate as string);
+    if (req.query.entityId) filters.entityId = req.query.entityId as string;
+    if (req.query.entityType) filters.entityType = req.query.entityType as string;
+    if (req.query.projectId) filters.projectId = req.query.projectId as string;
+    if (req.query.subprojectId) filters.subprojectId = req.query.subprojectId as string;
+    if (req.query.activityId) filters.activityId = req.query.activityId as string;
+    if (req.query.beneficiaryId) filters.beneficiaryId = req.query.beneficiaryId as string;
+    if (req.query.beneficiaryIds) filters.beneficiaryIds = String(req.query.beneficiaryIds).split(',').filter(Boolean);
+    if (req.query.serviceId) filters.serviceId = req.query.serviceId as string;
+    if (req.query.serviceIds) filters.serviceIds = String(req.query.serviceIds).split(',').filter(Boolean);
+    if (req.query.formTemplateId) filters.formTemplateId = req.query.formTemplateId as string;
+    if (req.query.formTemplateIds) filters.formTemplateIds = String(req.query.formTemplateIds).split(',').filter(Boolean);
+
+    const summary = await kpiCalculationService.calculateDynamicSummary(filters);
+
+    return res.status(200).json({ success: true, data: summary });
+  } catch (error: any) {
+    logger.error(`Error calculating dynamic metrics summary: ${error.message}`, error);
+    return res.status(500).json({ success: false, message: `Error calculating dynamic metrics summary: ${error.message}` });
+  }
+};
+
+/**
+ * Dynamic metrics time series (no KPI definitions)
+ */
+export const getMetricsSeries = async (req: Request, res: Response) => {
+  logger.info('Calculating dynamic metrics series');
+  try {
+    const metric = (req.query.metric as string) as 'submissions' | 'serviceDeliveries' | 'uniqueBeneficiaries';
+    const allowed = ['submissions', 'serviceDeliveries', 'uniqueBeneficiaries'];
+    if (!metric || !allowed.includes(metric)) {
+      return res.status(400).json({ success: false, message: `metric must be one of: ${allowed.join(', ')}` });
+    }
+
+    const filters: KpiFilterOptions & { groupBy: 'day' | 'week' | 'month' | 'quarter' | 'year' } = { groupBy: 'month' } as any;
+
+    const allowedGroup = ['day', 'week', 'month', 'quarter', 'year'];
+    const groupBy = (req.query.groupBy as string) || 'month';
+    if (!allowedGroup.includes(groupBy)) {
+      return res.status(400).json({ success: false, message: `groupBy must be one of: ${allowedGroup.join(', ')}` });
+    }
+    filters.groupBy = groupBy as any;
+
+    if (req.query.fromDate) filters.fromDate = new Date(req.query.fromDate as string);
+    if (req.query.toDate) filters.toDate = new Date(req.query.toDate as string);
+    if (req.query.entityId) filters.entityId = req.query.entityId as string;
+    if (req.query.entityType) filters.entityType = req.query.entityType as string;
+    if (req.query.projectId) filters.projectId = req.query.projectId as string;
+    if (req.query.subprojectId) filters.subprojectId = req.query.subprojectId as string;
+    if (req.query.activityId) filters.activityId = req.query.activityId as string;
+    if (req.query.beneficiaryId) filters.beneficiaryId = req.query.beneficiaryId as string;
+    if (req.query.beneficiaryIds) filters.beneficiaryIds = String(req.query.beneficiaryIds).split(',').filter(Boolean);
+    if (req.query.serviceId) filters.serviceId = req.query.serviceId as string;
+    if (req.query.serviceIds) filters.serviceIds = String(req.query.serviceIds).split(',').filter(Boolean);
+    if (req.query.formTemplateId) filters.formTemplateId = req.query.formTemplateId as string;
+    if (req.query.formTemplateIds) filters.formTemplateIds = String(req.query.formTemplateIds).split(',').filter(Boolean);
+
+    const series = await kpiCalculationService.calculateDynamicSeries(metric as any, filters);
+    return res.status(200).json({ success: true, data: series });
+  } catch (error: any) {
+    logger.error(`Error calculating dynamic metrics series: ${error.message}`, error);
+    return res.status(500).json({ success: false, message: `Error calculating dynamic metrics series: ${error.message}` });
+  }
+};
+
 export default {
   createKpi,
   updateKpi,
@@ -510,4 +583,6 @@ export default {
   calculateKpiSeries,
   calculateAllKpisForEntity,
   getFormFields,
+  getMetricsSummary,
+  getMetricsSeries,
 };
