@@ -565,4 +565,137 @@ router.get(
   }
 );
 
+/**
+ * @swagger
+ * /forms/metrics/summary:
+ *   get:
+ *     summary: Dynamic metrics summary from responses and service deliveries (no KPI definitions required)
+ *     tags: [Forms, KPIs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: fromDate
+ *         schema: { type: string, format: date-time }
+ *         required: false
+ *       - in: query
+ *         name: toDate
+ *         schema: { type: string, format: date-time }
+ *         required: false
+ *       - in: query
+ *         name: entityId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityType
+ *         schema: { type: string, enum: [project, subproject, activity] }
+ *       - in: query
+ *         name: projectId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: subprojectId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: activityId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: beneficiaryId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: beneficiaryIds
+ *         schema: { type: string }
+ *         description: Comma-separated beneficiary IDs
+ *       - in: query
+ *         name: serviceId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: serviceIds
+ *         schema: { type: string }
+ *         description: Comma-separated service IDs
+ *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string }
+ *         description: Comma-separated form template IDs
+ *     responses:
+ *       200:
+ *         description: Summary including submissions, unique beneficiaries, service deliveries, etc.
+ */
+router.get(
+  "/metrics/summary",
+  authenticate,
+  (req: Request, res: Response): void => {
+    formsController.kpis.getMetricsSummary(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /forms/metrics/series:
+ *   get:
+ *     summary: Dynamic metrics time series (submissions, serviceDeliveries, uniqueBeneficiaries)
+ *     tags: [Forms, KPIs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: metric
+ *         schema: { type: string, enum: [submissions, serviceDeliveries, uniqueBeneficiaries] }
+ *         required: true
+ *       - in: query
+ *         name: groupBy
+ *         schema: { type: string, enum: [day, week, month, quarter, year] }
+ *         required: true
+ *       - in: query
+ *         name: fromDate
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: toDate
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: entityId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityType
+ *         schema: { type: string, enum: [project, subproject, activity] }
+ *       - in: query
+ *         name: projectId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: subprojectId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: activityId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: beneficiaryId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: beneficiaryIds
+ *         schema: { type: string }
+ *       - in: query
+ *         name: serviceId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: serviceIds
+ *         schema: { type: string }
+ *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Time series for the selected metric
+ */
+router.get(
+  "/metrics/series",
+  authenticate,
+  (req: Request, res: Response): void => {
+    formsController.kpis.getMetricsSeries(req, res);
+  }
+);
+
 export default router;
