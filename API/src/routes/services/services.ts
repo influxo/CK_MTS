@@ -349,6 +349,12 @@ router.post(
  *         name: formResponseId
  *         schema: { type: string, format: uuid }
  *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
+ *       - in: query
  *         name: startDate
  *         schema: { type: string, format: date-time }
  *       - in: query
@@ -394,6 +400,12 @@ router.get(
  *       - in: query
  *         name: formResponseId
  *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string }
  *       - in: query
  *         name: startDate
  *         schema: { type: string, format: date-time }
@@ -441,6 +453,12 @@ router.get(
  *         name: formResponseId
  *         schema: { type: string, format: uuid }
  *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string }
+ *       - in: query
  *         name: startDate
  *         schema: { type: string, format: date-time }
  *       - in: query
@@ -484,6 +502,12 @@ router.get(
  *         name: formResponseId
  *         schema: { type: string, format: uuid }
  *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string }
+ *       - in: query
  *         name: startDate
  *         schema: { type: string, format: date-time }
  *       - in: query
@@ -499,6 +523,179 @@ router.get(
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.metricsDeliveriesByService(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /services/metrics/deliveries/by-form-template:
+ *   get:
+ *     summary: Count of service deliveries grouped by form template
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: serviceId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: serviceIds
+ *         schema: { type: string }
+ *       - in: query
+ *         name: staffUserId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: beneficiaryId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityType
+ *         schema: { type: string, enum: [project, subproject, activity] }
+ *       - in: query
+ *         name: formResponseId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string }
+ *       - in: query
+ *         name: startDate
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: endDate
+ *         schema: { type: string, format: date-time }
+ *     responses:
+ *       200:
+ *         description: Aggregation list
+ */
+router.get(
+  '/metrics/deliveries/by-form-template',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  (req: Request, res: Response): void => {
+    servicesController.metricsDeliveriesByFormTemplate(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /services/metrics/deliveries/series:
+ *   get:
+ *     summary: Time series of service deliveries, optionally grouped by a dimension
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: groupBy
+ *         schema: { type: string, enum: [day, week, month, quarter, year] }
+ *         description: Time bucket granularity
+ *       - in: query
+ *         name: groupField
+ *         schema: { type: string, enum: [service, user, beneficiary, formTemplate] }
+ *         description: Optional secondary grouping dimension
+ *       - in: query
+ *         name: serviceId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: serviceIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
+ *       - in: query
+ *         name: staffUserId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: beneficiaryId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityType
+ *         schema: { type: string, enum: [project, subproject, activity] }
+ *       - in: query
+ *         name: formResponseId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
+ *       - in: query
+ *         name: startDate
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: endDate
+ *         schema: { type: string, format: date-time }
+ *     responses:
+ *       200:
+ *         description: List of time buckets with counts
+ */
+router.get(
+  '/metrics/deliveries/series',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  (req: Request, res: Response): void => {
+    servicesController.metricsDeliveriesSeries(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /services/metrics/deliveries/summary:
+ *   get:
+ *     summary: Summary of service deliveries (totals and uniques)
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: serviceId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: serviceIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
+ *       - in: query
+ *         name: staffUserId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: beneficiaryId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityType
+ *         schema: { type: string, enum: [project, subproject, activity] }
+ *       - in: query
+ *         name: formResponseId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
+ *       - in: query
+ *         name: startDate
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: endDate
+ *         schema: { type: string, format: date-time }
+ *     responses:
+ *       200:
+ *         description: Summary numbers
+ */
+router.get(
+  '/metrics/deliveries/summary',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  (req: Request, res: Response): void => {
+    servicesController.metricsDeliveriesSummary(req, res);
   }
 );
 

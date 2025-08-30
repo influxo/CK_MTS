@@ -531,6 +531,10 @@ router.put(
  *               longitude:
  *                 type: number
  *                 description: Optional longitude where the form was submitted
+ *               beneficiaryId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: Optional beneficiary to associate with this submission. If provided, must exist.
  *               services:
  *                 type: array
  *                 description: Optional list of services delivered as part of this submission. Only services assigned to the entity are accepted.

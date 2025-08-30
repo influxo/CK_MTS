@@ -290,6 +290,36 @@ router.get(
  *           format: uuid
  *         required: false
  *         description: ID of the activity to filter by
+ *       - in: query
+ *         name: beneficiaryId
+ *         schema: { type: string, format: uuid }
+ *         required: false
+ *         description: Filter by beneficiaryId present on form responses
+ *       - in: query
+ *         name: beneficiaryIds
+ *         schema: { type: string }
+ *         required: false
+ *         description: Comma-separated beneficiary IDs
+ *       - in: query
+ *         name: serviceId
+ *         schema: { type: string, format: uuid }
+ *         required: false
+ *         description: Filter by service via ServiceDeliveries linked to form responses
+ *       - in: query
+ *         name: serviceIds
+ *         schema: { type: string }
+ *         required: false
+ *         description: Comma-separated service IDs
+ *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *         required: false
+ *         description: Filter by formTemplateId
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string }
+ *         required: false
+ *         description: Comma-separated form template IDs
  *     responses:
  *       200:
  *         description: KPI calculation result
@@ -384,6 +414,36 @@ router.get(
  *           type: string
  *         required: false
  *         description: JSON array string of ad-hoc filters, e.g. [{"field":"ginia","op":"eq","value":"M"}]
+ *       - in: query
+ *         name: beneficiaryId
+ *         schema: { type: string, format: uuid }
+ *         required: false
+ *         description: Filter by beneficiaryId present on form responses
+ *       - in: query
+ *         name: beneficiaryIds
+ *         schema: { type: string }
+ *         required: false
+ *         description: Comma-separated beneficiary IDs
+ *       - in: query
+ *         name: serviceId
+ *         schema: { type: string, format: uuid }
+ *         required: false
+ *         description: Filter by service via ServiceDeliveries linked to form responses
+ *       - in: query
+ *         name: serviceIds
+ *         schema: { type: string }
+ *         required: false
+ *         description: Comma-separated service IDs
+ *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *         required: false
+ *         description: Filter by formTemplateId
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string }
+ *         required: false
+ *         description: Comma-separated form template IDs
  *     responses:
  *       200:
  *         description: KPI time series result
@@ -437,6 +497,36 @@ router.get(
  *           format: date-time
  *         required: false
  *         description: End date for data calculation
+ *       - in: query
+ *         name: beneficiaryId
+ *         schema: { type: string, format: uuid }
+ *         required: false
+ *         description: Filter by beneficiaryId present on form responses
+ *       - in: query
+ *         name: beneficiaryIds
+ *         schema: { type: string }
+ *         required: false
+ *         description: Comma-separated beneficiary IDs
+ *       - in: query
+ *         name: serviceId
+ *         schema: { type: string, format: uuid }
+ *         required: false
+ *         description: Filter by service via ServiceDeliveries linked to form responses
+ *       - in: query
+ *         name: serviceIds
+ *         schema: { type: string }
+ *         required: false
+ *         description: Comma-separated service IDs
+ *       - in: query
+ *         name: formTemplateId
+ *         schema: { type: string, format: uuid }
+ *         required: false
+ *         description: Filter by formTemplateId
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema: { type: string }
+ *         required: false
+ *         description: Comma-separated form template IDs
  *     responses:
  *       200:
  *         description: Results of all KPI calculations for the entity
