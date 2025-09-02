@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { FormTemplate, FormResponse, User, AuditLog, Beneficiary, ServiceAssignment, ServiceDelivery, Activity, Service } from "../../models";
+import { FormTemplate, FormResponse, User, AuditLog, Beneficiary, ServiceAssignment, ServiceDelivery, Activity, Service, Subproject } from "../../models";
 import FormEntityAssociation from "../../models/FormEntityAssociation";
 import { v4 as uuidv4 } from "uuid";
 import { createLogger } from "../../utils/logger";
@@ -111,27 +111,42 @@ export const submitFormResponse = async (req: Request, res: Response) => {
       const servicesInput = Array.isArray(req.body.services) ? req.body.services : [];
       let createdDeliveries = 0;
       let skippedDeliveries: Array<{ serviceId: string; reason: string }> = [];
+      let unassignedNotBlocked = 0;
 
       if (servicesInput.length > 0) {
-        // Determine allowed serviceIds for this entity
-        let allowedServiceIds = new Set<string>();
+        // Determine allowed serviceIds for this entity, considering hierarchy
+        const allowedServiceIds = new Set<string>();
 
-        if (entityType === 'project' || entityType === 'subproject') {
-          const assignments = await ServiceAssignment.findAll({
-            where: { entityId, entityType },
-            transaction,
-          });
+        if (entityType === 'project') {
+          const assignments = await ServiceAssignment.findAll({ where: { entityId, entityType: 'project' }, transaction });
           for (const a of assignments) allowedServiceIds.add(a.get('serviceId') as string);
+        } else if (entityType === 'subproject') {
+          // Include assignments at subproject level and parent project level
+          const [subAssignments, sub] = await Promise.all([
+            ServiceAssignment.findAll({ where: { entityId, entityType: 'subproject' }, transaction }),
+            Subproject.findByPk(entityId, { transaction }),
+          ]);
+          for (const a of subAssignments) allowedServiceIds.add(a.get('serviceId') as string);
+          const projectId = sub?.get('projectId') as string | undefined;
+          if (projectId) {
+            const projAssignments = await ServiceAssignment.findAll({ where: { entityId: projectId, entityType: 'project' }, transaction });
+            for (const a of projAssignments) allowedServiceIds.add(a.get('serviceId') as string);
+          }
         } else if (entityType === 'activity') {
-          // Resolve to the subproject and check assignments there
+          // Include assignments at the activity's subproject and its parent project
           const activity = await Activity.findByPk(entityId, { transaction });
           const subprojectId = activity?.get('subprojectId') as string | undefined;
           if (subprojectId) {
-            const assignments = await ServiceAssignment.findAll({
-              where: { entityId: subprojectId, entityType: 'subproject' },
-              transaction,
-            });
-            for (const a of assignments) allowedServiceIds.add(a.get('serviceId') as string);
+            const [subAssignments, sub] = await Promise.all([
+              ServiceAssignment.findAll({ where: { entityId: subprojectId, entityType: 'subproject' }, transaction }),
+              Subproject.findByPk(subprojectId, { transaction }),
+            ]);
+            for (const a of subAssignments) allowedServiceIds.add(a.get('serviceId') as string);
+            const projectId = sub?.get('projectId') as string | undefined;
+            if (projectId) {
+              const projAssignments = await ServiceAssignment.findAll({ where: { entityId: projectId, entityType: 'project' }, transaction });
+              for (const a of projAssignments) allowedServiceIds.add(a.get('serviceId') as string);
+            }
           }
         }
 
@@ -145,9 +160,17 @@ export const submitFormResponse = async (req: Request, res: Response) => {
             skippedDeliveries.push({ serviceId, reason: 'no beneficiary linked' });
             continue;
           }
+
+          // Previously we skipped if serviceId was not assigned to the entity when there were some assignments.
+          // Business decision: proceed to create delivery but log a warning for visibility.
           if (allowedServiceIds.size > 0 && !allowedServiceIds.has(serviceId)) {
-            skippedDeliveries.push({ serviceId, reason: 'service not assigned to entity' });
-            continue;
+            logger.warn('Service not assigned to entity; proceeding to create ServiceDelivery per relaxed policy', {
+              entityId,
+              entityType,
+              serviceId,
+              beneficiaryId,
+            });
+            unassignedNotBlocked += 1;
           }
 
           const deliveredAt = item?.deliveredAt ? new Date(item.deliveredAt) : new Date();
@@ -186,6 +209,7 @@ export const submitFormResponse = async (req: Request, res: Response) => {
             requested: Array.isArray(req.body.services) ? req.body.services.length : 0,
             created: createdDeliveries,
             skipped: skippedDeliveries,
+            unassignedNotBlocked,
           }
         }),
         timestamp: new Date()
@@ -502,8 +526,69 @@ export const getResponsesByEntity = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Get a single form response by ID
+ */
+export const getFormResponseById = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const response = await FormResponse.findByPk(id, {
+      include: [
+        { model: FormTemplate, as: 'template', attributes: ['id', 'name', 'version'] },
+        { model: User, as: 'submitter', attributes: ['id', 'firstName', 'lastName', 'email'] },
+        { model: Beneficiary, as: 'beneficiary', attributes: ['id', 'pseudonym', 'status'] },
+        {
+          model: ServiceDelivery,
+          as: 'serviceDeliveries',
+          attributes: ['id', 'serviceId', 'deliveredAt', 'staffUserId', 'notes', 'entityId', 'entityType'],
+          include: [
+            { model: Service, as: 'service', attributes: ['id', 'name', 'category'] },
+            { model: User, as: 'staff', attributes: ['id', 'firstName', 'lastName', 'email'] },
+          ],
+        },
+      ],
+    });
+
+    if (!response) {
+      return res.status(404).json({ success: false, message: 'Form response not found' });
+    }
+
+    // RBAC: ensure user can access the entity associated with the response
+    if (req.user && Array.isArray(req.user.allowedProgramIds) && req.user.allowedProgramIds.length > 0) {
+      const allowed = new Set<string>(req.user.allowedProgramIds as any);
+      const entityType = response.get('entityType') as 'project' | 'subproject' | 'activity';
+      const entityId = String(response.get('entityId'));
+      let projectIdToCheck: string | null = null;
+
+      if (entityType === 'project') {
+        projectIdToCheck = entityId;
+      } else if (entityType === 'subproject') {
+        const sub = await Subproject.findByPk(entityId, { attributes: ['projectId'] });
+        projectIdToCheck = sub ? String(sub.get('projectId')) : null;
+      } else if (entityType === 'activity') {
+        const act = await Activity.findByPk(entityId, { attributes: ['subprojectId'] });
+        const subId = act ? String(act.get('subprojectId')) : null;
+        if (subId) {
+          const sub = await Subproject.findByPk(subId, { attributes: ['projectId'] });
+          projectIdToCheck = sub ? String(sub.get('projectId')) : null;
+        }
+      }
+
+      if (!projectIdToCheck || !allowed.has(projectIdToCheck)) {
+        return res.status(403).json({ success: false, message: 'You do not have access to this response' });
+      }
+    }
+
+    return res.status(200).json({ success: true, data: response });
+  } catch (error: any) {
+    logger.error('Error fetching form response by id', { id, error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
 export default {
   submitFormResponse,
   getFormResponses,
-  getResponsesByEntity
+  getResponsesByEntity,
+  getFormResponseById,
 };

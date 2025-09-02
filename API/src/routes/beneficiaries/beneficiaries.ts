@@ -129,6 +129,135 @@ router.get(
 
 /**
  * @swagger
+ * /beneficiaries/{id}/services:
+ *   get:
+ *     summary: List services delivered to a beneficiary
+ *     description: Returns paginated service deliveries with service info and the entity (project/subproject/activity) where delivered.
+ *     tags: [Beneficiaries]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: fromDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: toDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *     responses:
+ *       200:
+ *         description: Paginated list of service deliveries
+ *       404:
+ *         description: Beneficiary not found
+ */
+router.get(
+  '/:id/services',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  (req: Request, res: Response): void => {
+    beneficiariesController.servicesForBeneficiary(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /beneficiaries/{id}/services/history:
+ *   get:
+ *     summary: Chronological service history for a beneficiary
+ *     description: Returns paginated service deliveries ordered by deliveredAt ASC with service, staff, and entity details.
+ *     tags: [Beneficiaries]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: fromDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: toDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *     responses:
+ *       200:
+ *         description: Paginated service history
+ *       404:
+ *         description: Beneficiary not found
+ */
+router.get(
+  '/:id/services/history',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  (req: Request, res: Response): void => {
+    beneficiariesController.serviceHistoryForBeneficiary(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /beneficiaries/{id}/entities:
+ *   get:
+ *     summary: List entities where the beneficiary has received services
+ *     description: Returns distinct entities (project/subproject/activity) with counts and last delivery date.
+ *     tags: [Beneficiaries]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: List of entities with counts
+ *       404:
+ *         description: Beneficiary not found
+ */
+router.get(
+  '/:id/entities',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  (req: Request, res: Response): void => {
+    beneficiariesController.entitiesForBeneficiary(req, res);
+  }
+);
+
+/**
+ * @swagger
  * /beneficiaries/{id}/pii:
  *   get:
  *     summary: Get decrypted PII for a beneficiary (restricted)
