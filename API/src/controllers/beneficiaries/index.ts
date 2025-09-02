@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
 import sequelize from '../../db/connection';
+import { Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger';
-import { AuditLog, Beneficiary } from '../../models';
+import { AuditLog, Beneficiary, ServiceDelivery, Service, User, Project, Subproject, Activity, FormResponse } from '../../models';
 import beneficiariesService from '../../services/beneficiaries/beneficiariesService';
 import { decryptField } from '../../utils/crypto';
 import { ROLES } from '../../constants/roles';
@@ -384,6 +385,470 @@ const remove = async (req: Request, res: Response) => {
   }
 };
 
+const servicesForBeneficiary = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    // Validate beneficiary exists (quick check)
+    const exists = await Beneficiary.findByPk(id, { attributes: ['id'] });
+    if (!exists) return res.status(404).json({ success: false, message: 'Beneficiary not found' });
+
+    const page = Math.max(parseInt(String(req.query.page || '1'), 10) || 1, 1);
+    const limitRaw = parseInt(String(req.query.limit || '20'), 10) || 20;
+    const limit = Math.max(1, Math.min(limitRaw, 100));
+    const offset = (page - 1) * limit;
+    const fromDate = req.query.fromDate ? new Date(String(req.query.fromDate)) : null;
+    const toDate = req.query.toDate ? new Date(String(req.query.toDate)) : null;
+
+    const where: any = { beneficiaryId: id };
+    if (fromDate && toDate) where.deliveredAt = { [Op.between]: [fromDate, toDate] };
+    else if (fromDate) where.deliveredAt = { [Op.gte]: fromDate };
+    else if (toDate) where.deliveredAt = { [Op.lte]: toDate };
+
+    // Fetch deliveries with service and staff basic info
+    const { rows, count } = await ServiceDelivery.findAndCountAll({
+      where,
+      limit,
+      offset,
+      order: [['deliveredAt', 'DESC']],
+      include: [
+        { model: Service, as: 'service', attributes: ['id', 'name', 'category'] },
+        { model: User, as: 'staff', attributes: ['id', 'firstName', 'lastName', 'email'] },
+      ],
+    });
+
+    // Collect entity IDs by type for name resolution
+    const projIds = new Set<string>();
+    const subIds = new Set<string>();
+    const actIds = new Set<string>();
+    for (const d of rows) {
+      const t = d.get('entityType') as string;
+      const eId = String(d.get('entityId'));
+      if (t === 'project') projIds.add(eId);
+      else if (t === 'subproject') subIds.add(eId);
+      else if (t === 'activity') actIds.add(eId);
+    }
+
+    // Bulk load entities
+    const [projects, subprojects, activities] = await Promise.all([
+      projIds.size ? Project.findAll({ where: { id: Array.from(projIds) }, attributes: ['id', 'name'] }) : Promise.resolve([] as any[]),
+      subIds.size ? Subproject.findAll({ where: { id: Array.from(subIds) }, attributes: ['id', 'name', 'projectId'] }) : Promise.resolve([] as any[]),
+      actIds.size ? Activity.findAll({ where: { id: Array.from(actIds) }, attributes: ['id', 'name', 'subprojectId'] }) : Promise.resolve([] as any[]),
+    ]);
+
+    const projMap = new Map(projects.map((p: any) => [String(p.id), { id: p.id, name: p.name, type: 'project' }]));
+    const subMap = new Map(subprojects.map((s: any) => [String(s.id), { id: s.id, name: s.name, type: 'subproject', projectId: s.projectId }]));
+    const actMap = new Map(activities.map((a: any) => [String(a.id), { id: a.id, name: a.name, type: 'activity', subprojectId: a.subprojectId }]));
+
+    // Access filter: if user has restricted allowedProgramIds, drop deliveries whose entityId not allowed
+    let deliveries = rows as any[];
+    const allowed = (req.user && Array.isArray(req.user.allowedProgramIds)) ? new Set<string>(req.user.allowedProgramIds as any) : null;
+    if (allowed) deliveries = deliveries.filter(d => {
+      const t = d.get('entityType') as 'project' | 'subproject' | 'activity';
+      const eId = String(d.get('entityId'));
+      if (t === 'project') return allowed.has(eId);
+      if (t === 'subproject') {
+        const sub = subMap.get(eId);
+        return sub ? allowed.has(String(sub.projectId)) : false;
+      }
+      if (t === 'activity') {
+        const act = actMap.get(eId) || null;
+        const sub = act ? subMap.get(String(act.subprojectId)) : undefined;
+        return sub ? allowed.has(String(sub.projectId)) : false;
+      }
+      return false;
+    });
+
+    // Enrich deliveries with entity names
+    const items = deliveries.map(d => {
+      const entityType = d.get('entityType') as 'project' | 'subproject' | 'activity';
+      const entityId = String(d.get('entityId'));
+      let entity: any = { id: entityId, type: entityType };
+      if (entityType === 'project') entity = projMap.get(entityId) || entity;
+      if (entityType === 'subproject') entity = subMap.get(entityId) || entity;
+      if (entityType === 'activity') entity = actMap.get(entityId) || entity;
+      const sd: any = d as any; // eager-loaded associations are available at runtime but not in TS typings
+      return {
+        id: d.get('id'),
+        service: sd.service ? { id: sd.service.id, name: sd.service.name, category: sd.service.category } : null,
+        deliveredAt: d.get('deliveredAt'),
+        staff: sd.staff ? { id: sd.staff.id, firstName: sd.staff.firstName, lastName: sd.staff.lastName, email: sd.staff.email } : null,
+        notes: d.get('notes'),
+        entity,
+        formResponseId: d.get('formResponseId') || null,
+      };
+    });
+
+    const totalPages = Math.ceil(count / limit);
+    return res.status(200).json({ success: true, data: items, meta: { page, limit, totalPages, totalItems: count } });
+  } catch (error: any) {
+    logger.error('Error fetching beneficiary services', { id, error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+const entitiesForBeneficiary = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const exists = await Beneficiary.findByPk(id, { attributes: ['id'] });
+    if (!exists) return res.status(404).json({ success: false, message: 'Beneficiary not found' });
+
+    // Pull entities from FormResponse, where beneficiary was associated via forms
+    const responses = await FormResponse.findAll({
+      where: { beneficiaryId: id },
+      attributes: ['id', 'formTemplateId', 'entityId', 'entityType', 'submittedAt'],
+      order: [['submittedAt', 'DESC']],
+    });
+
+    // Initial ID collections for enrichment (names + parent mapping)
+    const projIds = new Set<string>();
+    const subIds = new Set<string>();
+    const actIds = new Set<string>();
+    for (const r of responses) {
+      const t = r.get('entityType') as string;
+      const eId = String(r.get('entityId'));
+      if (t === 'project') projIds.add(eId);
+      else if (t === 'subproject') subIds.add(eId);
+      else if (t === 'activity') actIds.add(eId);
+    }
+
+    // We'll also include ServiceDeliveries; collect after fetching to expand sub/act IDs if needed
+
+    // Preload entities we already know from form responses
+    const [projectsA, subprojectsA, activitiesA] = await Promise.all([
+      projIds.size ? Project.findAll({ where: { id: Array.from(projIds) }, attributes: ['id', 'name'] }) : Promise.resolve([] as any[]),
+      subIds.size ? Subproject.findAll({ where: { id: Array.from(subIds) }, attributes: ['id', 'name', 'projectId'] }) : Promise.resolve([] as any[]),
+      actIds.size ? Activity.findAll({ where: { id: Array.from(actIds) }, attributes: ['id', 'name', 'subprojectId'] }) : Promise.resolve([] as any[]),
+    ]);
+
+    const projById = new Map(projectsA.map((p: any) => [String(p.id), { id: String(p.id), name: p.name }]));
+    const subById = new Map(subprojectsA.map((s: any) => [String(s.id), { id: String(s.id), name: s.name, projectId: String(s.projectId) }]));
+    const actById = new Map(activitiesA.map((a: any) => [String(a.id), { id: String(a.id), name: a.name, subprojectId: String(a.subprojectId) }]));
+
+    // Access filter: allowedProgramIds are project IDs. Map subproject/activity to its parent project before filtering.
+    const allowed = (req.user && Array.isArray(req.user.allowedProgramIds)) ? new Set<string>((req.user.allowedProgramIds as any).map(String)) : null;
+    const responsesFiltered = allowed
+      ? responses.filter(r => {
+          const t = r.get('entityType') as 'project' | 'subproject' | 'activity';
+          const eId = String(r.get('entityId'));
+          if (t === 'project') return allowed.has(eId);
+          if (t === 'subproject') {
+            const sub = subById.get(eId);
+            return sub ? allowed.has(sub.projectId) : false;
+          }
+          if (t === 'activity') {
+            const act = actById.get(eId) || null;
+            const sub = act ? subById.get(String(act.subprojectId)) : undefined;
+            return sub ? allowed.has(sub.projectId) : false;
+          }
+          return false;
+        })
+      : responses;
+
+    // Also fetch services delivered to this beneficiary and apply the same access filter
+    const deliveries = await ServiceDelivery.findAll({
+      where: { beneficiaryId: id },
+      attributes: ['id', 'serviceId', 'entityId', 'entityType', 'deliveredAt', 'notes', 'formResponseId', 'staffUserId'],
+      order: [['deliveredAt', 'DESC']],
+      include: [
+        { model: Service, as: 'service', attributes: ['id', 'name', 'category'] },
+        { model: User, as: 'staff', attributes: ['id', 'firstName', 'lastName', 'email'] },
+      ],
+    });
+
+    // Enrich ID sets with any entities referenced only by service deliveries
+    for (const d of deliveries) {
+      const t = d.get('entityType') as string;
+      const eId = String(d.get('entityId'));
+      if (t === 'project' && !projById.has(eId)) projIds.add(eId);
+      else if (t === 'subproject' && !subById.has(eId)) subIds.add(eId);
+      else if (t === 'activity' && !actById.has(eId)) actIds.add(eId);
+    }
+
+    // Load any missing entity records discovered via deliveries
+    const [projectsB, subprojectsB, activitiesB] = await Promise.all([
+      projIds.size ? Project.findAll({ where: { id: Array.from(projIds).filter(id2 => !projById.has(id2)) }, attributes: ['id', 'name'] }) : Promise.resolve([] as any[]),
+      subIds.size ? Subproject.findAll({ where: { id: Array.from(subIds).filter(id2 => !subById.has(id2)) }, attributes: ['id', 'name', 'projectId'] }) : Promise.resolve([] as any[]),
+      actIds.size ? Activity.findAll({ where: { id: Array.from(actIds).filter(id2 => !actById.has(id2)) }, attributes: ['id', 'name', 'subprojectId'] }) : Promise.resolve([] as any[]),
+    ]);
+    for (const p of projectsB) projById.set(String(p.id), { id: String(p.id), name: p.name });
+    for (const s of subprojectsB) subById.set(String(s.id), { id: String(s.id), name: s.name, projectId: String(s.projectId) });
+    for (const a of activitiesB) actById.set(String(a.id), { id: String(a.id), name: a.name, subprojectId: String(a.subprojectId) });
+
+    const deliveriesFiltered = allowed
+      ? deliveries.filter(d => {
+          const t = d.get('entityType') as 'project' | 'subproject' | 'activity';
+          const eId = String(d.get('entityId'));
+          if (t === 'project') return allowed.has(eId);
+          if (t === 'subproject') {
+            const sub = subById.get(eId);
+            return sub ? allowed.has(sub.projectId) : false;
+          }
+          if (t === 'activity') {
+            const act = actById.get(eId) || null;
+            const sub = act ? subById.get(String(act.subprojectId)) : undefined;
+            return sub ? allowed.has(sub.projectId) : false;
+          }
+          return false;
+        })
+      : deliveries;
+
+    // Group by entity key and assemble payloads
+    type EntityKey = string;
+    interface EntityBucket {
+      entityId: string;
+      entityType: 'project' | 'subproject' | 'activity';
+      formResponses: Array<{ id: string; formTemplateId: string; submittedAt: Date }>;
+      services: Array<{ id: string; service: { id: string; name: string; category: string } | null; deliveredAt: Date; staff: { id: string; firstName: string; lastName: string; email: string } | null; notes: any; formResponseId: string | null }>;
+    }
+
+    const buckets = new Map<EntityKey, EntityBucket>();
+
+    // Seed from form responses
+    for (const r of responsesFiltered) {
+      const type = r.get('entityType') as 'project' | 'subproject' | 'activity';
+      const entityId = String(r.get('entityId'));
+      const key = `${type}:${entityId}`;
+      if (!buckets.has(key)) {
+        buckets.set(key, { entityId, entityType: type, formResponses: [], services: [] });
+      }
+      buckets.get(key)!.formResponses.push({
+        id: String(r.get('id')),
+        formTemplateId: String(r.get('formTemplateId')),
+        submittedAt: r.get('submittedAt') as Date,
+      });
+    }
+
+    // Add deliveries
+    for (const d of deliveriesFiltered) {
+      const type = d.get('entityType') as 'project' | 'subproject' | 'activity';
+      const entityId = String(d.get('entityId'));
+      const key = `${type}:${entityId}`;
+      if (!buckets.has(key)) {
+        buckets.set(key, { entityId, entityType: type, formResponses: [], services: [] });
+      }
+      const sd: any = d as any; // eager-loaded associations are available at runtime but not in TS typings
+      buckets.get(key)!.services.push({
+        id: String(d.get('id')),
+        service: sd.service ? { id: sd.service.id, name: sd.service.name, category: sd.service.category } : null,
+        deliveredAt: d.get('deliveredAt') as Date,
+        staff: sd.staff ? { id: sd.staff.id, firstName: sd.staff.firstName, lastName: sd.staff.lastName, email: sd.staff.email } : null,
+        notes: d.get('notes'),
+        formResponseId: (d.get('formResponseId') ? String(d.get('formResponseId')) : null),
+      });
+    }
+
+    // Build final list with entity names
+    const items = Array.from(buckets.values()).map(g => {
+      let name: string | undefined;
+      if (g.entityType === 'project') name = projById.get(g.entityId)?.name;
+      else if (g.entityType === 'subproject') name = subById.get(g.entityId)?.name;
+      else name = actById.get(g.entityId)?.name;
+      return {
+        entity: { id: g.entityId, type: g.entityType, name },
+        formResponses: g.formResponses.sort((a, b) => (b.submittedAt as any) - (a.submittedAt as any)),
+        services: g.services.sort((a, b) => (b.deliveredAt as any) - (a.deliveredAt as any)),
+      };
+    });
+
+    return res.status(200).json({ success: true, data: items });
+  } catch (error: any) {
+    logger.error('Error fetching beneficiary entities', { id, error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+const demographics = async (req: Request, res: Response) => {
+  try {
+    const roles = req.userRoles || [];
+    const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
+    const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    if (!canDecrypt) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const beneficiaries = await Beneficiary.findAll({
+      attributes: ['dobEnc', 'genderEnc'],
+      order: [['createdAt', 'DESC']],
+    });
+
+    const now = new Date();
+    const ageBuckets: Record<string, number> = { '0-20': 0, '19-35': 0, '36-55': 0, '55+': 0 };
+    const genderCounts: Record<string, number> = { M: 0, F: 0, Unknown: 0 };
+
+    const calcAge = (dobIso?: string | null) => {
+      if (!dobIso) return null;
+      const d = new Date(dobIso);
+      if (isNaN(d.getTime())) return null;
+      let age = now.getFullYear() - d.getFullYear();
+      const m = now.getMonth() - d.getMonth();
+      if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+      return age;
+    };
+
+    for (const b of beneficiaries) {
+      const dob = decryptField(b.get('dobEnc') as any) as string | null;
+      const gender = (decryptField(b.get('genderEnc') as any) as 'M' | 'F' | null) || null;
+
+      const age = calcAge(dob);
+      if (age != null) {
+        if (age <= 20) ageBuckets['0-20']++;
+        else if (age <= 35) ageBuckets['19-35']++;
+        else if (age <= 55) ageBuckets['36-55']++;
+        else ageBuckets['55+']++;
+      }
+
+      if (gender === 'M') genderCounts.M++;
+      else if (gender === 'F') genderCounts.F++;
+      else genderCounts.Unknown++;
+    }
+
+    // Audit aggregate PII read
+    try {
+      await AuditLog.create({
+        id: uuidv4(),
+        userId: req.user.id,
+        action: 'BENEFICIARY_PII_AGGREGATE',
+        description: 'Computed beneficiary demographics',
+        details: JSON.stringify({ total: beneficiaries.length }),
+        timestamp: new Date(),
+      });
+    } catch (_) { /* ignore */ }
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('X-PII-Access', 'decrypt');
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        age: [
+          { name: '0-20', value: ageBuckets['0-20'] },
+          { name: '19-35', value: ageBuckets['19-35'] },
+          { name: '36-55', value: ageBuckets['36-55'] },
+          { name: '55+', value: ageBuckets['55+'] },
+        ],
+        gender: [
+          { name: 'Male', count: genderCounts.M },
+          { name: 'Female', count: genderCounts.F },
+          { name: 'Unknown', count: genderCounts.Unknown },
+        ],
+      },
+    });
+  } catch (error: any) {
+    logger.error('Error computing demographics', { error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+const serviceHistoryForBeneficiary = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const exists = await Beneficiary.findByPk(id, { attributes: ['id'] });
+    if (!exists) return res.status(404).json({ success: false, message: 'Beneficiary not found' });
+
+    const page = Math.max(parseInt(String(req.query.page || '1'), 10) || 1, 1);
+    const limitRaw = parseInt(String(req.query.limit || '50'), 10) || 50;
+    const limit = Math.max(1, Math.min(limitRaw, 200));
+    const offset = (page - 1) * limit;
+    const fromDate = req.query.fromDate ? new Date(String(req.query.fromDate)) : null;
+    const toDate = req.query.toDate ? new Date(String(req.query.toDate)) : null;
+
+    const where: any = { beneficiaryId: id };
+    if (fromDate && toDate) where.deliveredAt = { [Op.between]: [fromDate, toDate] };
+    else if (fromDate) where.deliveredAt = { [Op.gte]: fromDate };
+    else if (toDate) where.deliveredAt = { [Op.lte]: toDate };
+
+    const { rows, count } = await ServiceDelivery.findAndCountAll({
+      where,
+      limit,
+      offset,
+      order: [['deliveredAt', 'ASC']],
+      include: [
+        { model: Service, as: 'service', attributes: ['id', 'name', 'category'] },
+        { model: User, as: 'staff', attributes: ['id', 'firstName', 'lastName', 'email'] },
+      ],
+    });
+
+    // RBAC: filter by allowedProgramIds (project IDs); map subproject/activity to parent project
+    let deliveries = rows as any[];
+    const allowed = (req.user && Array.isArray(req.user.allowedProgramIds)) ? new Set<string>(req.user.allowedProgramIds as any) : null;
+    if (allowed) deliveries = deliveries.filter(d => {
+      const t = d.get('entityType') as 'project' | 'subproject' | 'activity';
+      const eId = String(d.get('entityId'));
+      if (t === 'project') return allowed.has(eId);
+      if (t === 'subproject') return true; // parent mapping resolved below with names
+      if (t === 'activity') return true;
+      return false;
+    });
+
+    // Collect IDs for name resolution
+    const projIds = new Set<string>();
+    const subIds = new Set<string>();
+    const actIds = new Set<string>();
+    for (const d of deliveries) {
+      const t = d.get('entityType') as string;
+      const eId = String(d.get('entityId'));
+      if (t === 'project') projIds.add(eId);
+      else if (t === 'subproject') subIds.add(eId);
+      else if (t === 'activity') actIds.add(eId);
+    }
+
+    const [projects, subs, acts] = await Promise.all([
+      projIds.size ? Project.findAll({ where: { id: Array.from(projIds) }, attributes: ['id', 'name'] }) : Promise.resolve([] as any[]),
+      subIds.size ? Subproject.findAll({ where: { id: Array.from(subIds) }, attributes: ['id', 'name', 'projectId'] }) : Promise.resolve([] as any[]),
+      actIds.size ? Activity.findAll({ where: { id: Array.from(actIds) }, attributes: ['id', 'name', 'subprojectId'] }) : Promise.resolve([] as any[]),
+    ]);
+
+    const projMap = new Map(projects.map((p: any) => [String(p.id), { id: String(p.id), name: p.name }]));
+    const subMap = new Map(subs.map((s: any) => [String(s.id), { id: String(s.id), name: s.name, projectId: String(s.projectId) }]));
+    const actMap = new Map(acts.map((a: any) => [String(a.id), { id: String(a.id), name: a.name, subprojectId: String(a.subprojectId) }]));
+
+    // Apply full RBAC for subproject/activity by mapping to parent project IDs
+    if (allowed) {
+      deliveries = deliveries.filter(d => {
+        const t = d.get('entityType') as 'project' | 'subproject' | 'activity';
+        const eId = String(d.get('entityId'));
+        if (t === 'project') return allowed.has(eId);
+        if (t === 'subproject') {
+          const sub = subMap.get(eId);
+          return sub ? allowed.has(sub.projectId) : false;
+        }
+        if (t === 'activity') {
+          const act = actMap.get(eId) || null;
+          const sub = act ? subMap.get(String(act.subprojectId)) : undefined;
+          return sub ? allowed.has(sub.projectId) : false;
+        }
+        return false;
+      });
+    }
+
+    const items = deliveries.map(d => {
+      const entityType = d.get('entityType') as 'project' | 'subproject' | 'activity';
+      const entityId = String(d.get('entityId'));
+      let entity: any = { id: entityId, type: entityType };
+      if (entityType === 'project') entity = projMap.get(entityId) || entity;
+      if (entityType === 'subproject') entity = subMap.get(entityId) || entity;
+      if (entityType === 'activity') entity = actMap.get(entityId) || entity;
+      const sd: any = d as any;
+      return {
+        id: d.get('id'),
+        service: sd.service ? { id: sd.service.id, name: sd.service.name, category: sd.service.category } : null,
+        deliveredAt: d.get('deliveredAt'),
+        staff: sd.staff ? { id: sd.staff.id, firstName: sd.staff.firstName, lastName: sd.staff.lastName, email: sd.staff.email } : null,
+        notes: d.get('notes'),
+        entity,
+        formResponseId: d.get('formResponseId') || null,
+      };
+    });
+
+    const totalPages = Math.ceil(count / limit);
+    return res.status(200).json({ success: true, data: items, meta: { page, limit, totalPages, totalItems: count } });
+  } catch (error: any) {
+    logger.error('Error fetching beneficiary service history', { id, error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
 export default {
   list,
   getById,
@@ -392,86 +857,8 @@ export default {
   update,
   setStatus,
   remove,
-  async demographics(req: Request, res: Response) {
-    try {
-      const roles = req.userRoles || [];
-      const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
-      const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
-      if (!canDecrypt) {
-        return res.status(403).json({ success: false, message: 'Forbidden' });
-      }
-
-      const beneficiaries = await Beneficiary.findAll({
-        attributes: ['dobEnc', 'genderEnc'],
-        order: [['createdAt', 'DESC']],
-      });
-
-      const now = new Date();
-      const ageBuckets: Record<string, number> = { '0-20': 0, '19-35': 0, '36-55': 0, '55+': 0 };
-      const genderCounts: Record<string, number> = { M: 0, F: 0, Unknown: 0 };
-
-      const calcAge = (dobIso?: string | null) => {
-        if (!dobIso) return null;
-        const d = new Date(dobIso);
-        if (isNaN(d.getTime())) return null;
-        let age = now.getFullYear() - d.getFullYear();
-        const m = now.getMonth() - d.getMonth();
-        if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
-        return age;
-      };
-
-      for (const b of beneficiaries) {
-        const dob = decryptField(b.get('dobEnc') as any) as string | null;
-        const gender = (decryptField(b.get('genderEnc') as any) as 'M' | 'F' | null) || null;
-
-        const age = calcAge(dob);
-        if (age != null) {
-          if (age <= 20) ageBuckets['0-20']++;
-          else if (age <= 35) ageBuckets['19-35']++;
-          else if (age <= 55) ageBuckets['36-55']++;
-          else ageBuckets['55+']++;
-        }
-
-        if (gender === 'M') genderCounts.M++;
-        else if (gender === 'F') genderCounts.F++;
-        else genderCounts.Unknown++;
-      }
-
-      // Audit aggregate PII read
-      try {
-        await AuditLog.create({
-          id: uuidv4(),
-          userId: req.user.id,
-          action: 'BENEFICIARY_PII_AGGREGATE',
-          description: 'Computed beneficiary demographics',
-          details: JSON.stringify({ total: beneficiaries.length }),
-          timestamp: new Date(),
-        });
-      } catch (_) { /* ignore */ }
-
-      res.setHeader('Cache-Control', 'no-store');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('X-PII-Access', 'decrypt');
-
-      return res.status(200).json({
-        success: true,
-        data: {
-          age: [
-            { name: '0-20', value: ageBuckets['0-20'] },
-            { name: '19-35', value: ageBuckets['19-35'] },
-            { name: '36-55', value: ageBuckets['36-55'] },
-            { name: '55+', value: ageBuckets['55+'] },
-          ],
-          gender: [
-            { name: 'Male', count: genderCounts.M },
-            { name: 'Female', count: genderCounts.F },
-            { name: 'Unknown', count: genderCounts.Unknown },
-          ],
-        },
-      });
-    } catch (error: any) {
-      logger.error('Error computing demographics', { error: error.message });
-      return res.status(500).json({ success: false, message: 'Internal server error' });
-    }
-  },
+  servicesForBeneficiary,
+  entitiesForBeneficiary,
+  demographics,
+  serviceHistoryForBeneficiary,
 };

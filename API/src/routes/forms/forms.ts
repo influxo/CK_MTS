@@ -693,4 +693,38 @@ router.get(
   }
 );
 
+/**
+ * @swagger
+ * /forms/responses/{id}:
+ *   get:
+ *     summary: Get a single form response by ID
+ *     tags: [Forms]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: true
+ *         description: The form response ID
+ *     responses:
+ *       200:
+ *         description: Form response details
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - user does not have access
+ *       404:
+ *         description: Form response not found
+ */
+router.get(
+  "/responses/:id",
+  authenticate,
+  (req: Request, res: Response): void => {
+    formsController.responses.getFormResponseById(req, res);
+  }
+);
+
 export default router;
