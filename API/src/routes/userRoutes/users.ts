@@ -397,6 +397,14 @@ router.post('/:id/reset-password',
  *               message:
  *                 type: string
  *                 description: Optional invitation message to include in the email
+ *               projectId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: Optional project to auto-assign the invited user to. Ignored if subprojectId is also provided.
+ *               subprojectId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: Optional subproject to auto-assign the invited user to. Takes precedence over projectId if both provided.
  *     responses:
  *       201:
  *         description: Invitation sent successfully
