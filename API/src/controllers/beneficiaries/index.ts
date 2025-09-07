@@ -3,7 +3,7 @@ import sequelize from '../../db/connection';
 import { Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger';
-import { AuditLog, Beneficiary, ServiceDelivery, Service, User, Project, Subproject, Activity, FormResponse } from '../../models';
+import { AuditLog, Beneficiary, ServiceDelivery, Service, User, Project, Subproject, Activity, FormResponse, BeneficiaryDetails } from '../../models';
 import beneficiariesService from '../../services/beneficiaries/beneficiariesService';
 import { decryptField } from '../../utils/crypto';
 import { ROLES } from '../../constants/roles';
@@ -116,12 +116,17 @@ const getById = async (req: Request, res: Response) => {
       const b = await Beneficiary.findByPk(id, { transaction });
       if (!b) return null;
 
+      // Load additional details (non-PII) if available
+      const detailsRow = await BeneficiaryDetails.findOne({ where: { beneficiaryId: id }, attributes: ['details'], transaction });
+      const extra = { details: detailsRow ? detailsRow.get('details') : null } as any;
+
       const base = {
         id: b.id,
         pseudonym: b.pseudonym,
         status: b.status,
         createdAt: b.get('createdAt'),
         updatedAt: b.get('updatedAt'),
+        ...extra,
       } as any;
 
       const roles = req.userRoles || [];
@@ -260,21 +265,32 @@ const create = async (req: Request, res: Response) => {
     municipality: req.body?.municipality ?? null,
     nationality: req.body?.nationality ?? null,
   } as any;
+  const details = (req.body && typeof req.body.details === 'object') ? req.body.details : null;
 
   try {
     const created = await sequelize.transaction(async (transaction) => {
       const safe = await beneficiariesService.createBeneficiary(input, { transaction, userId: req.user.id });
+
+      // If details provided, upsert BeneficiaryDetails linked to this beneficiary
+      if (details) {
+        await BeneficiaryDetails.upsert({
+          id: uuidv4(),
+          beneficiaryId: safe.id,
+          details,
+        }, { transaction });
+      }
 
       await AuditLog.create({
         id: uuidv4(),
         userId: req.user.id,
         action: 'BENEFICIARY_CREATE',
         description: `Created beneficiary '${safe.pseudonym}'`,
-        details: JSON.stringify({ beneficiaryId: safe.id }),
+        details: JSON.stringify({ beneficiaryId: safe.id, hasDetails: !!details }),
         timestamp: new Date(),
       }, { transaction });
 
-      return safe;
+      // Attach details to response (non-PII)
+      return { ...safe, details: details ?? null };
     });
 
     return res.status(201).json({ success: true, data: created });

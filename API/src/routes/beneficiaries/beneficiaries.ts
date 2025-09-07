@@ -115,6 +115,21 @@ router.get(
  *     responses:
  *       200:
  *         description: Beneficiary data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/Beneficiary'
+ *                     - type: object
+ *                       properties:
+ *                         details:
+ *                           type: object
+ *                           additionalProperties: true
+ *                           description: Optional extended details JSON if present
  *       404:
  *         description: Not found
  */
@@ -316,6 +331,10 @@ router.get(
  *               municipality: { type: string }
  *               nationality: { type: string }
  *               status: { type: string, enum: [active, inactive] }
+ *               details:
+ *                 type: object
+ *                 additionalProperties: true
+ *                 description: Optional extended details JSON to store under beneficiary_details
  *     responses:
  *       201:
  *         description: Created
