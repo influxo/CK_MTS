@@ -21,6 +21,7 @@ import BeneficiaryMapping from "./BeneficiaryMapping";
 import Service from "./Service";
 import ServiceAssignment from "./ServiceAssignment";
 import ServiceDelivery from "./ServiceDelivery";
+import BeneficiaryDetails from "./BeneficiaryDetails";
 
 // Set up associations
 
@@ -191,6 +192,16 @@ BeneficiaryMatchKey.belongsTo(Beneficiary, {
   as: 'beneficiary'
 });
 
+// Beneficiary-Details association (1:1)
+Beneficiary.hasOne(BeneficiaryDetails, {
+  foreignKey: 'beneficiaryId',
+  as: 'details'
+});
+BeneficiaryDetails.belongsTo(Beneficiary, {
+  foreignKey: 'beneficiaryId',
+  as: 'beneficiary'
+});
+
 // Service associations
 Service.hasMany(ServiceAssignment, {
   foreignKey: 'serviceId',
@@ -271,5 +282,6 @@ export {
   BeneficiaryMapping,
   Service,
   ServiceAssignment,
-  ServiceDelivery
+  ServiceDelivery,
+  BeneficiaryDetails
 };
