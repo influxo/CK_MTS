@@ -38,6 +38,10 @@ router.use(loggerMiddleware);
  *         version:
  *           type: integer
  *           description: Version number of the form template
+ *         status:
+ *           type: string
+ *           enum: [active, inactive]
+ *           description: Current status of the form template
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -244,6 +248,54 @@ router.put(
 
 /**
  * @swagger
+ * /forms/templates/{id}/inactivate:
+ *   patch:
+ *     summary: Set a form template to inactive
+ *     tags: [Forms]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: true
+ *         description: The form template ID
+ *     responses:
+ *       200:
+ *         description: Template set to inactive
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - user does not have required permissions
+ *       404:
+ *         description: Form template not found
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - status
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [active, inactive]
+ *                 description: Desired status for the form template
+ */
+router.patch(
+  "/templates/:id/inactivate",
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  (req: Request, res: Response): void => {
+    formsController.templates.setFormTemplateInactive(req, res);
+  }
+);
+
+/**
+ * @swagger
  * /forms/templates/{id}:
  *   get:
  *     summary: Get a form template by ID
@@ -273,6 +325,41 @@ router.get(
   authenticate,
   (req: Request, res: Response): void => {
     formsController.templates.getFormTemplateById(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /forms/templates/{id}/hard:
+ *   delete:
+ *     summary: Permanently delete a form template
+ *     tags: [Forms]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: true
+ *         description: The form template ID
+ *     responses:
+ *       200:
+ *         description: Form template permanently deleted
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - user does not have required permissions
+ *       404:
+ *         description: Form template not found
+ */
+router.delete(
+  "/templates/:id/hard",
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  (req: Request, res: Response): void => {
+    formsController.templates.hardDeleteFormTemplate(req, res);
   }
 );
 

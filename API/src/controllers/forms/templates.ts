@@ -642,10 +642,53 @@ export const getFormTemplatesByEntity = async (req: Request, res: Response) => {
       totalPages
     });
 
+    // Enrich associations across all templates with entityName and status using bulk queries
+    const allAssociations = templates.flatMap((t: any) => t.entityAssociations || []);
+
+    const projectIds = Array.from(new Set(allAssociations
+      .filter((ea: any) => ea.entityType === 'project')
+      .map((ea: any) => ea.entityId)));
+    const subprojectIds = Array.from(new Set(allAssociations
+      .filter((ea: any) => ea.entityType === 'subproject')
+      .map((ea: any) => ea.entityId)));
+    const activityIds = Array.from(new Set(allAssociations
+      .filter((ea: any) => ea.entityType === 'activity')
+      .map((ea: any) => ea.entityId)));
+
+    const [projects, subprojects, activities] = await Promise.all([
+      projectIds.length ? Project.findAll({ where: { id: { [Op.in]: projectIds } }, attributes: ['id','name','status'] }) : Promise.resolve([]),
+      subprojectIds.length ? Subproject.findAll({ where: { id: { [Op.in]: subprojectIds } }, attributes: ['id','name','status'] }) : Promise.resolve([]),
+      activityIds.length ? Activity.findAll({ where: { id: { [Op.in]: activityIds } }, attributes: ['id','name','status'] }) : Promise.resolve([]),
+    ]);
+
+    const projectMap = new Map(projects.map((p: any) => [p.id, p]));
+    const subprojectMap = new Map(subprojects.map((s: any) => [s.id, s]));
+    const activityMap = new Map(activities.map((a: any) => [a.id, a]));
+
+    const enrichedTemplates = templates.map((t: any) => {
+      const tJson = t.toJSON();
+      const associations = tJson.entityAssociations || [];
+      const enrichedAssociations = associations.map((ea: any) => {
+        let entity: any = null;
+        if (ea.entityType === 'project') entity = projectMap.get(ea.entityId);
+        else if (ea.entityType === 'subproject') entity = subprojectMap.get(ea.entityId);
+        else if (ea.entityType === 'activity') entity = activityMap.get(ea.entityId);
+        return {
+          ...ea,
+          entityName: entity?.name ?? null,
+          status: entity?.status ?? null,
+        };
+      });
+      return {
+        ...tJson,
+        entityAssociations: enrichedAssociations,
+      };
+    });
+
     return res.status(200).json({
       success: true,
       data: {
-        templates,
+        templates: enrichedTemplates,
         pagination: {
           page,
           limit,
@@ -846,10 +889,144 @@ export const deleteFormTemplate = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Set form template status to inactive
+ */
+export const setFormTemplateInactive = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  logger.info('Setting form template inactive', { templateId: id });
+
+  try {
+    const result = await sequelize.transaction(async (transaction) => {
+      const template = await FormTemplate.findByPk(id, {
+        include: [{
+          model: FormEntityAssociation,
+          as: 'entityAssociations'
+        }],
+        transaction
+      });
+
+      if (!template) {
+        logger.warn('Form template not found', { templateId: id });
+        return { success: false, status: 404, message: 'Form template not found' };
+      }
+
+      // Access check: user must have access to at least one associated entity
+      if (req.user && req.user.allowedProgramIds && template.entityAssociations) {
+        const hasAccess = template.entityAssociations.some(ea => req.user!.allowedProgramIds!.includes(ea.entityId));
+        if (!hasAccess) {
+          logger.warn('User does not have access to any entities associated with this template', { userId: req.user.id, templateId: id });
+          return { success: false, status: 403, message: 'You do not have access to any entities associated with this form template' };
+        }
+      }
+      
+      const desiredStatus = (req.body?.status as string)?.toLowerCase();
+      const validStatuses = ['active', 'inactive'];
+      if (!desiredStatus || !validStatuses.includes(desiredStatus)) {
+        return { success: false, status: 400, message: "Invalid or missing status. Expected 'active' or 'inactive'" };
+      }
+
+      if ((template as any).status === desiredStatus) {
+        return { success: true, status: 200, message: `Template already ${desiredStatus}`, data: template };
+      }
+
+      await FormTemplate.update({ status: desiredStatus } as any, { where: { id }, transaction });
+
+      const updated = await FormTemplate.findByPk(id, { transaction });
+
+      await AuditLog.create({
+        id: uuidv4(),
+        userId: req.user.id,
+        action: desiredStatus === 'inactive' ? 'FORM_TEMPLATE_INACTIVATE' : 'FORM_TEMPLATE_ACTIVATE',
+        description: `Set form template '${template.name}' ${desiredStatus}`,
+        details: JSON.stringify({ templateId: id, previousStatus: (template as any).status, newStatus: desiredStatus }),
+        timestamp: new Date()
+      }, { transaction });
+
+      return { success: true, status: 200, message: `Template set to ${desiredStatus}`, data: updated };
+    });
+
+    if (!result.success) {
+      return res.status(result.status).json({ success: false, message: result.message });
+    }
+
+    return res.status(result.status).json({ success: true, message: result.message, data: result.data });
+  } catch (error: any) {
+    logger.error(`Error setting form template inactive ID: ${id}`, error);
+    return res.status(500).json({ success: false, message: `Error setting template inactive: ${error.message}` });
+  }
+};
+
+/**
+ * Permanently delete a form template (hard delete)
+ */
+export const hardDeleteFormTemplate = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  logger.info('Hard deleting form template', { templateId: id });
+
+  try {
+    const result = await sequelize.transaction(async (transaction) => {
+      // Include soft-deleted too when looking up, to allow hard-deleting already soft-deleted records
+      const template = await FormTemplate.findByPk(id, {
+        include: [{
+          model: FormEntityAssociation,
+          as: 'entityAssociations'
+        }],
+        paranoid: false,
+        transaction
+      });
+
+      if (!template) {
+        logger.warn('Form template not found', { templateId: id });
+        return { success: false, status: 404, message: 'Form template not found' };
+      }
+
+      // Access check
+      if (req.user && req.user.allowedProgramIds && template.entityAssociations) {
+        const hasAccess = template.entityAssociations.some(ea => req.user!.allowedProgramIds!.includes(ea.entityId));
+        if (!hasAccess) {
+          logger.warn('User does not have access to any entities associated with this template', { userId: req.user.id, templateId: id });
+          return { success: false, status: 403, message: 'You do not have access to any entities associated with this form template' };
+        }
+      }
+
+      // Remove associations first
+      if (template.entityAssociations && template.entityAssociations.length > 0) {
+        await FormEntityAssociation.destroy({ where: { formTemplateId: id }, force: true, transaction });
+      }
+
+      // Hard delete the template
+      await (template as any).destroy({ force: true, transaction });
+
+      await AuditLog.create({
+        id: uuidv4(),
+        userId: req.user.id,
+        action: 'FORM_TEMPLATE_HARD_DELETE',
+        description: `Hard deleted form template '${template.name}'`,
+        details: JSON.stringify({ templateId: id, version: template.version }),
+        timestamp: new Date()
+      }, { transaction });
+
+      return { success: true, status: 200, message: 'Form template permanently deleted' };
+    });
+
+    if (!result.success) {
+      return res.status(result.status).json({ success: false, message: result.message });
+    }
+
+    return res.status(result.status).json({ success: true, message: result.message });
+  } catch (error: any) {
+    logger.error(`Error hard deleting form template with ID: ${id}`, error);
+    return res.status(500).json({ success: false, message: `Error hard deleting form template: ${error.message}` });
+  }
+};
+
 export default {
   createFormTemplate,
   updateFormTemplate,
   getFormTemplateById,
   getFormTemplatesByEntity,
-  deleteFormTemplate
+  deleteFormTemplate,
+  setFormTemplateInactive,
+  hardDeleteFormTemplate
 };

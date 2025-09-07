@@ -10,6 +10,7 @@ class FormTemplate extends Model {
   public name!: string;
   public schema!: any; // JSONB field storing form structure
   public version!: number;
+  public status!: string; // 'active' | 'inactive'
 
   // Timestamps
   public readonly createdAt!: Date;
@@ -126,6 +127,14 @@ FormTemplate.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 1,
+    },
+    status: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'active',
+      validate: {
+        isIn: [["active", "inactive"]],
+      },
     },
     createdAt: {
       type: DataTypes.DATE,
