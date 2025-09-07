@@ -706,9 +706,39 @@ export const getFormTemplateById = async (req: Request, res: Response) => {
     }
 
     logger.info('Successfully retrieved form template', { templateId: id });
+    // Enrich entity associations with entityName and status
+    const associations = template.entityAssociations || [];
+    const enrichedAssociations = await Promise.all(
+      associations.map(async (ea: any) => {
+        let entity: any = null;
+        try {
+          if (ea.entityType === 'project') {
+            entity = await Project.findByPk(ea.entityId, { attributes: ['id', 'name', 'status'] });
+          } else if (ea.entityType === 'subproject') {
+            entity = await Subproject.findByPk(ea.entityId, { attributes: ['id', 'name', 'status'] });
+          } else if (ea.entityType === 'activity') {
+            entity = await Activity.findByPk(ea.entityId, { attributes: ['id', 'name', 'status'] });
+          }
+        } catch (e) {
+          logger.warn('Failed to enrich entity association', { associationId: ea.id, entityType: ea.entityType, entityId: ea.entityId });
+        }
+        const json = ea.toJSON ? ea.toJSON() : ea;
+        return {
+          ...json,
+          entityName: entity?.name ?? null,
+          status: entity?.status ?? null,
+        };
+      })
+    );
+
+    const enrichedTemplate = {
+      ...template.toJSON(),
+      entityAssociations: enrichedAssociations,
+    };
+
     return res.status(200).json({
       success: true,
-      data: template,
+      data: enrichedTemplate,
     });
   } catch (error) {
     logger.error(`Error fetching form template with ID: ${id}`, error);
