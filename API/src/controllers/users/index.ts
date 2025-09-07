@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { User, Role, UserRole, AuditLog, Project, Subproject, Activity } from '../../models';
+import { User, Role, UserRole, AuditLog, Project, Subproject, Activity, ProjectUser, SubprojectUser } from '../../models';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { Op } from 'sequelize';
@@ -898,7 +898,7 @@ export const inviteUser = async (req: Request, res: Response) => {
   logger.info('Inviting new user', { email: req.body.email });
   
   try {
-    const { firstName, lastName, email, roleIds, message } = req.body;
+    const { firstName, lastName, email, roleIds, message, projectId, subprojectId } = req.body;
     const invitingUser = (req as any).user;
     logger.info('Invitation initiated by', { invitingUserId: invitingUser.id });
 
@@ -934,6 +934,24 @@ export const inviteUser = async (req: Request, res: Response) => {
     const tokenExpiry = new Date();
     tokenExpiry.setDate(tokenExpiry.getDate() + 7);
     logger.info('Token expiry set', { email, expiryDate: tokenExpiry });
+
+    // Validate provided association targets if any
+    let targetProject: Project | null = null;
+    let targetSubproject: Subproject | null = null;
+    if (projectId && subprojectId) {
+      logger.warn('Both projectId and subprojectId provided; prioritizing subproject association', { projectId, subprojectId });
+    }
+    if (subprojectId) {
+      targetSubproject = await Subproject.findByPk(subprojectId);
+      if (!targetSubproject) {
+        return res.status(404).json({ success: false, message: 'Subproject not found' });
+      }
+    } else if (projectId) {
+      targetProject = await Project.findByPk(projectId);
+      if (!targetProject) {
+        return res.status(404).json({ success: false, message: 'Project not found' });
+      }
+    }
 
     // Create user with invited status
     logger.info('Creating invited user', { email });
@@ -1006,6 +1024,33 @@ export const inviteUser = async (req: Request, res: Response) => {
       logger.warn('No valid roles found to assign', { roleIds });
     }
 
+    // Automatically associate user with project/subproject if provided
+    if (targetSubproject) {
+      try {
+        await SubprojectUser.create({ id: uuidv4(), userId: user.id, subprojectId: targetSubproject.id });
+        await AuditLog.create({
+          userId: invitingUser.id,
+          action: 'USER_ASSIGNED_TO_SUBPROJECT',
+          description: `Invited user assigned to subproject '${targetSubproject.name}'`,
+          details: JSON.stringify({ userId: user.id, subprojectId: targetSubproject.id }),
+        });
+      } catch (assignErr: any) {
+        logger.error('Failed assigning user to subproject during invitation', { error: assignErr?.message });
+      }
+    } else if (targetProject) {
+      try {
+        await ProjectUser.create({ id: uuidv4(), userId: user.id, projectId: targetProject.id });
+        await AuditLog.create({
+          userId: invitingUser.id,
+          action: 'USER_ASSIGNED_TO_PROJECT',
+          description: `Invited user assigned to project '${targetProject.name}'`,
+          details: JSON.stringify({ userId: user.id, projectId: targetProject.id }),
+        });
+      } catch (assignErr: any) {
+        logger.error('Failed assigning user to project during invitation', { error: assignErr?.message });
+      }
+    }
+
     // Get user with roles
     const userWithRoles = await User.findByPk(user.id, {
       include: [{ model: Role, as: 'roles' }],
@@ -1052,6 +1097,8 @@ export const inviteUser = async (req: Request, res: Response) => {
         user: userWithRoles,
         verificationToken, // In production, remove this from the response
         acceptInvitationLink,
+        projectAssignment: targetProject ? { projectId: targetProject.id, name: targetProject.name } : undefined,
+        subprojectAssignment: targetSubproject ? { subprojectId: targetSubproject.id, name: targetSubproject.name } : undefined,
       },
     });
   } catch (error: any) {
