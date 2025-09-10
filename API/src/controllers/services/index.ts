@@ -66,7 +66,7 @@ const metricsDeliveriesCount = async (req: Request, res: Response) => {
   try {
     const where = buildDeliveryWhere(req.query);
     const include = buildFormTemplateInclude(req.query);
-    const total = await ServiceDelivery.count({ where, include, distinct: true, col: 'ServiceDelivery.id' as any });
+    const total = await ServiceDelivery.count({ where, include, distinct: true });
     return res.status(200).json({ success: true, data: { total } });
   } catch (error: any) {
     logger.error('Error computing deliveries count', { error: error.message });
@@ -212,7 +212,7 @@ const metricsDeliveriesSummary = async (req: Request, res: Response) => {
     const where = buildDeliveryWhere(req.query);
     const include = buildFormTemplateInclude(req.query);
     const [totalDeliveries, uniqueBeneficiaries, uniqueStaff, uniqueServices] = await Promise.all([
-      ServiceDelivery.count({ where, include, distinct: true, col: 'ServiceDelivery.id' as any }),
+      ServiceDelivery.count({ where, include, distinct: true }),
       ServiceDelivery.count({ where, include, distinct: true, col: 'beneficiaryId' as any }),
       ServiceDelivery.count({ where, include, distinct: true, col: 'staffUserId' as any }),
       ServiceDelivery.count({ where, include, distinct: true, col: 'serviceId' as any }),
