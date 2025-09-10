@@ -461,4 +461,127 @@ router.delete(
   }
 );
 
+/**
+ * @swagger
+ * /beneficiaries/by-entity:
+ *   get:
+ *     summary: List beneficiaries associated to an entity (project or subproject)
+ *     tags: [Beneficiaries]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: entityId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: entityType
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [project, subproject]
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [active, inactive]
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Paginated list of beneficiaries associated to the entity
+ */
+router.get(
+  '/by-entity',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  (req: Request, res: Response): void => {
+    beneficiariesController.listByEntity(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /beneficiaries/{id}/entities:
+ *   post:
+ *     summary: Associate a beneficiary with an entity (project or subproject)
+ *     tags: [Beneficiaries]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [entityId, entityType]
+ *             properties:
+ *               entityId: { type: string, format: uuid }
+ *               entityType: { type: string, enum: [project, subproject] }
+ *     responses:
+ *       200:
+ *         description: Association created or already existed
+ */
+router.post(
+  '/:id/entities',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  (req: Request, res: Response): void => {
+    beneficiariesController.associateWithEntity(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /beneficiaries/{id}/entities:
+ *   delete:
+ *     summary: Remove association between a beneficiary and an entity
+ *     tags: [Beneficiaries]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [entityId, entityType]
+ *             properties:
+ *               entityId: { type: string, format: uuid }
+ *               entityType: { type: string, enum: [project, subproject] }
+ *     responses:
+ *       200:
+ *         description: Association removed
+ */
+router.delete(
+  '/:id/entities',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  (req: Request, res: Response): void => {
+    beneficiariesController.dissociateFromEntity(req, res);
+  }
+);
+
 export default router;

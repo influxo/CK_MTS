@@ -22,6 +22,7 @@ import Service from "./Service";
 import ServiceAssignment from "./ServiceAssignment";
 import ServiceDelivery from "./ServiceDelivery";
 import BeneficiaryDetails from "./BeneficiaryDetails";
+import BeneficiaryAssignment from "./BeneficiaryAssignment";
 
 // Set up associations
 
@@ -202,6 +203,16 @@ BeneficiaryDetails.belongsTo(Beneficiary, {
   as: 'beneficiary'
 });
 
+// Beneficiary-Assignment associations (Beneficiary <-> Project/Subproject via polymorphic join)
+Beneficiary.hasMany(BeneficiaryAssignment, {
+  foreignKey: 'beneficiaryId',
+  as: 'assignments'
+});
+BeneficiaryAssignment.belongsTo(Beneficiary, {
+  foreignKey: 'beneficiaryId',
+  as: 'beneficiary'
+});
+
 // Service associations
 Service.hasMany(ServiceAssignment, {
   foreignKey: 'serviceId',
@@ -283,5 +294,6 @@ export {
   Service,
   ServiceAssignment,
   ServiceDelivery,
-  BeneficiaryDetails
+  BeneficiaryDetails,
+  BeneficiaryAssignment
 };
