@@ -3,7 +3,7 @@ import sequelize from '../../db/connection';
 import { Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger';
-import { AuditLog, Beneficiary, ServiceDelivery, Service, User, Project, Subproject, Activity, FormResponse, BeneficiaryDetails } from '../../models';
+import { AuditLog, Beneficiary, ServiceDelivery, Service, User, Project, Subproject, Activity, FormResponse, BeneficiaryDetails, BeneficiaryAssignment } from '../../models';
 import beneficiariesService from '../../services/beneficiaries/beneficiariesService';
 import { decryptField } from '../../utils/crypto';
 import { ROLES } from '../../constants/roles';
@@ -464,12 +464,12 @@ const servicesForBeneficiary = async (req: Request, res: Response) => {
       if (t === 'project') return allowed.has(eId);
       if (t === 'subproject') {
         const sub = subMap.get(eId);
-        return sub ? allowed.has(String(sub.projectId)) : false;
+        return sub ? allowed.has(sub.projectId) : false;
       }
       if (t === 'activity') {
         const act = actMap.get(eId) || null;
         const sub = act ? subMap.get(String(act.subprojectId)) : undefined;
-        return sub ? allowed.has(String(sub.projectId)) : false;
+        return sub ? allowed.has(sub.projectId) : false;
       }
       return false;
     });
@@ -646,7 +646,7 @@ const entitiesForBeneficiary = async (req: Request, res: Response) => {
       buckets.get(key)!.services.push({
         id: String(d.get('id')),
         service: sd.service ? { id: sd.service.id, name: sd.service.name, category: sd.service.category } : null,
-        deliveredAt: d.get('deliveredAt') as Date,
+        deliveredAt: d.get('deliveredAt'),
         staff: sd.staff ? { id: sd.staff.id, firstName: sd.staff.firstName, lastName: sd.staff.lastName, email: sd.staff.email } : null,
         notes: d.get('notes'),
         formResponseId: (d.get('formResponseId') ? String(d.get('formResponseId')) : null),
@@ -865,6 +865,294 @@ const serviceHistoryForBeneficiary = async (req: Request, res: Response) => {
   }
 };
 
+const associateWithEntity = async (req: Request, res: Response) => {
+  const { id } = req.params; // beneficiaryId
+  const { entityId, entityType } = req.body || {};
+  if (!entityId || !['project', 'subproject'].includes(entityType)) {
+    return res.status(400).json({ success: false, message: "entityId and valid entityType ('project'|'subproject') are required" });
+  }
+
+  try {
+    // Validate beneficiary
+    const beneficiary = await Beneficiary.findByPk(id, { attributes: ['id', 'pseudonym'] });
+    if (!beneficiary) return res.status(404).json({ success: false, message: 'Beneficiary not found' });
+
+    // Validate entity and perform RBAC project-level check
+    let projectIdForAuth: string | null = null;
+    if (entityType === 'project') {
+      const proj = await Project.findByPk(String(entityId), { attributes: ['id'] });
+      if (!proj) return res.status(404).json({ success: false, message: 'Project not found' });
+      projectIdForAuth = String(proj.id);
+    } else {
+      const sub = await Subproject.findByPk(String(entityId), { attributes: ['id', 'projectId'] });
+      if (!sub) return res.status(404).json({ success: false, message: 'Subproject not found' });
+      projectIdForAuth = String(sub.projectId);
+    }
+    const allowed = (req.user && Array.isArray(req.user.allowedProgramIds)) ? new Set<string>((req.user.allowedProgramIds as any).map(String)) : null;
+    if (allowed && projectIdForAuth && !allowed.has(projectIdForAuth)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: not allowed for this entity\'s project' });
+    }
+
+    const [row, created] = await BeneficiaryAssignment.findOrCreate({
+      where: { beneficiaryId: id, entityId: String(entityId), entityType },
+      defaults: { id: undefined as unknown as string, beneficiaryId: id, entityId: String(entityId), entityType },
+    });
+
+    try {
+      await AuditLog.create({
+        id: uuidv4(),
+        userId: req.user.id,
+        action: 'BENEFICIARY_ASSIGN_ENTITY',
+        description: `Associated beneficiary '${beneficiary.pseudonym}' with ${entityType} ${entityId}`,
+        details: JSON.stringify({ beneficiaryId: id, entityId: String(entityId), entityType, created }),
+        timestamp: new Date(),
+      });
+    } catch (_) { /* ignore */ }
+
+    return res.status(200).json({ success: true, data: { id: row.get('id'), created } });
+  } catch (error: any) {
+    logger.error('Error associating beneficiary with entity', { id, entityId, entityType, error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+const dissociateFromEntity = async (req: Request, res: Response) => {
+  const { id } = req.params; // beneficiaryId
+  const { entityId, entityType } = req.body || {};
+  if (!entityId || !['project', 'subproject'].includes(entityType)) {
+    return res.status(400).json({ success: false, message: "entityId and valid entityType ('project'|'subproject') are required" });
+  }
+
+  try {
+    // Validate beneficiary
+    const beneficiary = await Beneficiary.findByPk(id, { attributes: ['id', 'pseudonym'] });
+    if (!beneficiary) return res.status(404).json({ success: false, message: 'Beneficiary not found' });
+
+    // RBAC project-level check
+    let projectIdForAuth: string | null = null;
+    if (entityType === 'project') {
+      const proj = await Project.findByPk(String(entityId), { attributes: ['id'] });
+      if (!proj) return res.status(404).json({ success: false, message: 'Project not found' });
+      projectIdForAuth = String(proj.id);
+    } else {
+      const sub = await Subproject.findByPk(String(entityId), { attributes: ['id', 'projectId'] });
+      if (!sub) return res.status(404).json({ success: false, message: 'Subproject not found' });
+      projectIdForAuth = String(sub.projectId);
+    }
+    const allowed = (req.user && Array.isArray(req.user.allowedProgramIds)) ? new Set<string>((req.user.allowedProgramIds as any).map(String)) : null;
+    if (allowed && projectIdForAuth && !allowed.has(projectIdForAuth)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: not allowed for this entity\'s project' });
+    }
+
+    const count = await BeneficiaryAssignment.destroy({ where: { beneficiaryId: id, entityId: String(entityId), entityType } });
+
+    try {
+      await AuditLog.create({
+        id: uuidv4(),
+        userId: req.user.id,
+        action: 'BENEFICIARY_UNASSIGN_ENTITY',
+        description: `Dissociated beneficiary '${beneficiary.pseudonym}' from ${entityType} ${entityId}`,
+        details: JSON.stringify({ beneficiaryId: id, entityId: String(entityId), entityType, removed: count }),
+        timestamp: new Date(),
+      });
+    } catch (_) { /* ignore */ }
+
+    return res.status(200).json({ success: true, data: { removed: count } });
+  } catch (error: any) {
+    logger.error('Error dissociating beneficiary from entity', { id, entityId, entityType, error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+const listByEntity = async (req: Request, res: Response) => {
+  const entityId = String(req.query.entityId || '');
+  const entityType = String(req.query.entityType || '');
+  const status = (req.query.status as 'active' | 'inactive' | undefined) || undefined;
+  if (!entityId || !['project', 'subproject'].includes(entityType)) {
+    return res.status(400).json({ success: false, message: "Query params 'entityId' and valid 'entityType' ('project'|'subproject') are required" });
+  }
+
+  try {
+    // RBAC project-level check and gather scope
+    let projectIdForAuth: string | null = null;
+    let subprojectIds: string[] = [];
+    if (entityType === 'project') {
+      const proj = await Project.findByPk(entityId, { attributes: ['id'] });
+      if (!proj) return res.status(404).json({ success: false, message: 'Project not found' });
+      projectIdForAuth = String(proj.id);
+      // collect subprojects under this project
+      const subs = await Subproject.findAll({ where: { projectId: proj.id }, attributes: ['id'] });
+      subprojectIds = subs.map((s: any) => String(s.id));
+    } else {
+      const sub = await Subproject.findByPk(entityId, { attributes: ['id', 'projectId'] });
+      if (!sub) return res.status(404).json({ success: false, message: 'Subproject not found' });
+      projectIdForAuth = String(sub.projectId);
+    }
+    const allowed = (req.user && Array.isArray(req.user.allowedProgramIds)) ? new Set<string>((req.user.allowedProgramIds as any).map(String)) : null;
+    if (allowed && projectIdForAuth && !allowed.has(projectIdForAuth)) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const page = req.query.page ? Math.max(parseInt(String(req.query.page), 10) || 1, 1) : 1;
+    const limitRaw = req.query.limit ? parseInt(String(req.query.limit), 10) || 20 : 20;
+    const limit = Math.max(1, Math.min(limitRaw, 100));
+    const offset = (page - 1) * limit;
+
+    // Gather assignments for the scope
+    let assignments: any[] = [];
+    if (entityType === 'project') {
+      const projectAssignments = await BeneficiaryAssignment.findAll({
+        where: { entityType: 'project', entityId },
+        attributes: ['beneficiaryId', 'createdAt'],
+        order: [['createdAt', 'DESC']],
+      });
+      const subAssignments = subprojectIds.length
+        ? await BeneficiaryAssignment.findAll({
+            where: { entityType: 'subproject', entityId: subprojectIds },
+            attributes: ['beneficiaryId', 'createdAt'],
+            order: [['createdAt', 'DESC']],
+          })
+        : [];
+      assignments = [...projectAssignments, ...subAssignments];
+    } else {
+      assignments = await BeneficiaryAssignment.findAll({
+        where: { entityType: 'subproject', entityId },
+        attributes: ['beneficiaryId', 'createdAt'],
+        order: [['createdAt', 'DESC']],
+      });
+    }
+
+    // Deduplicate by beneficiary, track most recent assignment date for sorting
+    const latestMap = new Map<string, Date>();
+    for (const a of assignments) {
+      const bId = String(a.get('beneficiaryId'));
+      const dt = new Date(String(a.get('createdAt')));
+      const prev = latestMap.get(bId);
+      if (!prev || dt > prev) latestMap.set(bId, dt);
+    }
+    let uniqueIds = Array.from(latestMap.entries())
+      .sort((a, b) => (b[1] as any) - (a[1] as any))
+      .map(([bid]) => bid);
+
+    // Optional status filter: pre-filter IDs using a light query
+    if (status && uniqueIds.length) {
+      const candidates = await Beneficiary.findAll({ where: { id: uniqueIds, status }, attributes: ['id'] });
+      const allowedIdSet = new Set(candidates.map(c => String(c.id)));
+      uniqueIds = uniqueIds.filter(id2 => allowedIdSet.has(id2));
+    }
+
+    const totalItems = uniqueIds.length;
+    const totalPages = Math.ceil(totalItems / limit);
+    const pageIds = uniqueIds.slice(offset, offset + limit);
+
+    // Load beneficiaries for page
+    const beneficiaries = pageIds.length
+      ? await Beneficiary.findAll({ where: { id: pageIds } })
+      : [];
+
+    // Role-based PII handling
+    const roles = req.userRoles || [];
+    const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
+    const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+
+    // Ensure output preserves page order as per pageIds
+    const byId = new Map(beneficiaries.map((b: any) => [String(b.id), b]));
+    let items: any[] = pageIds.map(id2 => byId.get(id2)).filter(Boolean).map((b: any) => ({
+      id: b.id,
+      pseudonym: b.pseudonym,
+      status: b.status,
+      createdAt: b.get('createdAt'),
+      updatedAt: b.get('updatedAt'),
+      firstNameEnc: b.get('firstNameEnc'),
+      lastNameEnc: b.get('lastNameEnc'),
+      dobEnc: b.get('dobEnc'),
+      nationalIdEnc: b.get('nationalIdEnc'),
+      phoneEnc: b.get('phoneEnc'),
+      emailEnc: b.get('emailEnc'),
+      addressEnc: b.get('addressEnc'),
+      genderEnc: b.get('genderEnc'),
+      municipalityEnc: b.get('municipalityEnc'),
+      nationalityEnc: b.get('nationalityEnc'),
+    }));
+
+    if (canDecrypt) {
+      items = items.map((it: any) => ({
+        id: it.id,
+        pseudonym: it.pseudonym,
+        status: it.status,
+        createdAt: it.createdAt,
+        updatedAt: it.updatedAt,
+        piiEnc: {
+          firstNameEnc: it.firstNameEnc,
+          lastNameEnc: it.lastNameEnc,
+          dobEnc: it.dobEnc,
+          nationalIdEnc: it.nationalIdEnc,
+          phoneEnc: it.phoneEnc,
+          emailEnc: it.emailEnc,
+          addressEnc: it.addressEnc,
+          genderEnc: it.genderEnc,
+          municipalityEnc: it.municipalityEnc,
+          nationalityEnc: it.nationalityEnc,
+        },
+        pii: {
+          firstName: decryptField(it.firstNameEnc as any),
+          lastName: decryptField(it.lastNameEnc as any),
+          dob: decryptField(it.dobEnc as any),
+          nationalId: decryptField(it.nationalIdEnc as any),
+          phone: decryptField(it.phoneEnc as any),
+          email: decryptField(it.emailEnc as any),
+          address: decryptField(it.addressEnc as any),
+          gender: decryptField(it.genderEnc as any),
+          municipality: decryptField(it.municipalityEnc as any),
+          nationality: decryptField(it.nationalityEnc as any),
+        },
+      }));
+
+      // Audit PII list read
+      try {
+        await AuditLog.create({
+          id: uuidv4(),
+          userId: req.user.id,
+          action: 'BENEFICIARY_PII_LIST_READ_BY_ENTITY',
+          description: `Read PII for ${items.length} beneficiaries via GET /beneficiaries/by-entity`,
+          details: JSON.stringify({ count: items.length, entityId, entityType, page, limit }),
+          timestamp: new Date(),
+        });
+      } catch (_) { /* ignore */ }
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('X-PII-Access', 'decrypt');
+    } else {
+      items = items.map((it: any) => ({
+        id: it.id,
+        pseudonym: it.pseudonym,
+        status: it.status,
+        createdAt: it.createdAt,
+        updatedAt: it.updatedAt,
+        piiEnc: {
+          firstNameEnc: it.firstNameEnc,
+          lastNameEnc: it.lastNameEnc,
+          dobEnc: it.dobEnc,
+          nationalIdEnc: it.nationalIdEnc,
+          phoneEnc: it.phoneEnc,
+          emailEnc: it.emailEnc,
+          addressEnc: it.addressEnc,
+          genderEnc: it.genderEnc,
+          municipalityEnc: it.municipalityEnc,
+          nationalityEnc: it.nationalityEnc,
+        },
+      }));
+      res.setHeader('X-PII-Access', 'encrypted');
+    }
+
+    return res.status(200).json({ success: true, items, page, limit, totalItems, totalPages });
+  } catch (error: any) {
+    logger.error('Error listing beneficiaries by entity', { entityId, entityType, error: error.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
 export default {
   list,
   getById,
@@ -877,4 +1165,7 @@ export default {
   entitiesForBeneficiary,
   demographics,
   serviceHistoryForBeneficiary,
+  associateWithEntity,
+  dissociateFromEntity,
+  listByEntity,
 };
