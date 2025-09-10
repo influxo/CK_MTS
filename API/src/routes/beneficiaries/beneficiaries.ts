@@ -529,14 +529,22 @@ router.get(
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required: [entityId, entityType]
- *             properties:
- *               entityId: { type: string, format: uuid }
- *               entityType: { type: string, enum: [project, subproject] }
+ *             type: array
+ *             items:
+ *               type: object
+ *               required: [entityId, entityType]
+ *               properties:
+ *                 entityId: { type: string, format: uuid }
+ *                 entityType: { type: string, enum: [project, subproject] }
+ *           examples:
+ *             batch:
+ *               summary: Batch associations
+ *               value:
+ *                 - { entityId: "11111111-1111-1111-1111-111111111111", entityType: "project" }
+ *                 - { entityId: "22222222-2222-2222-2222-222222222222", entityType: "subproject" }
  *     responses:
  *       200:
- *         description: Association created or already existed
+ *         description: Associations created or already existed
  */
 router.post(
   '/:id/entities',

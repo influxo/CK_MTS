@@ -785,7 +785,7 @@ const serviceHistoryForBeneficiary = async (req: Request, res: Response) => {
       ],
     });
 
-    // RBAC: filter by allowedProgramIds (project IDs); map subproject/activity to parent project
+    // RBAC: filter by allowedProgramIds (project IDs); map subproject/activity to its parent project
     let deliveries = rows as any[];
     const allowed = (req.user && Array.isArray(req.user.allowedProgramIds)) ? new Set<string>(req.user.allowedProgramIds as any) : null;
     if (allowed) deliveries = deliveries.filter(d => {
@@ -867,9 +867,28 @@ const serviceHistoryForBeneficiary = async (req: Request, res: Response) => {
 
 const associateWithEntity = async (req: Request, res: Response) => {
   const { id } = req.params; // beneficiaryId
-  const { entityId, entityType } = req.body || {};
-  if (!entityId || !['project', 'subproject'].includes(entityType)) {
-    return res.status(400).json({ success: false, message: "entityId and valid entityType ('project'|'subproject') are required" });
+  // Accept either an array at root, or { associations: [...] }, or a single object
+  const raw = Array.isArray(req.body) ? req.body : (Array.isArray(req.body?.associations) ? req.body.associations : [req.body]);
+  const associations: Array<{ entityId: string; entityType: 'project' | 'subproject' }> = (raw || []).filter(Boolean);
+
+  if (!associations.length) {
+    return res.status(400).json({ success: false, message: "Request body must be an array of {entityId, entityType} (or provide 'associations' array)" });
+  }
+
+  // Basic validation and deduplication
+  const normalized: Array<{ entityId: string; entityType: 'project' | 'subproject' }> = [];
+  const seen = new Set<string>();
+  for (const a of associations) {
+    const eId = String(a?.entityId || '').trim();
+    const eType = String(a?.entityType || '').trim() as any;
+    if (!eId || !['project', 'subproject'].includes(eType)) {
+      return res.status(400).json({ success: false, message: "Each association requires 'entityId' and valid 'entityType' ('project'|'subproject')" });
+    }
+    const key = `${eType}:${eId}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      normalized.push({ entityId: eId, entityType: eType });
+    }
   }
 
   try {
@@ -877,41 +896,60 @@ const associateWithEntity = async (req: Request, res: Response) => {
     const beneficiary = await Beneficiary.findByPk(id, { attributes: ['id', 'pseudonym'] });
     if (!beneficiary) return res.status(404).json({ success: false, message: 'Beneficiary not found' });
 
-    // Validate entity and perform RBAC project-level check
-    let projectIdForAuth: string | null = null;
-    if (entityType === 'project') {
-      const proj = await Project.findByPk(String(entityId), { attributes: ['id'] });
-      if (!proj) return res.status(404).json({ success: false, message: 'Project not found' });
-      projectIdForAuth = String(proj.id);
-    } else {
-      const sub = await Subproject.findByPk(String(entityId), { attributes: ['id', 'projectId'] });
-      if (!sub) return res.status(404).json({ success: false, message: 'Subproject not found' });
-      projectIdForAuth = String(sub.projectId);
-    }
     const allowed = (req.user && Array.isArray(req.user.allowedProgramIds)) ? new Set<string>((req.user.allowedProgramIds as any).map(String)) : null;
-    if (allowed && projectIdForAuth && !allowed.has(projectIdForAuth)) {
-      return res.status(403).json({ success: false, message: 'Forbidden: not allowed for this entity\'s project' });
+
+    const results: Array<{ entityId: string; entityType: 'project' | 'subproject'; created: boolean; id?: string }> = [];
+
+    // Process each association
+    for (const { entityId, entityType } of normalized) {
+      // Validate entity and RBAC per-entity
+      let projectIdForAuth: string | null = null;
+      if (entityType === 'project') {
+        const proj = await Project.findByPk(entityId, { attributes: ['id'] });
+        if (!proj) {
+          results.push({ entityId, entityType, created: false });
+          continue;
+        }
+        projectIdForAuth = String(proj.id);
+      } else {
+        const sub = await Subproject.findByPk(entityId, { attributes: ['id', 'projectId'] });
+        if (!sub) {
+          results.push({ entityId, entityType, created: false });
+          continue;
+        }
+        projectIdForAuth = String(sub.projectId);
+      }
+
+      if (allowed && projectIdForAuth && !allowed.has(projectIdForAuth)) {
+        // Skip unauthorized entity
+        results.push({ entityId, entityType, created: false });
+        continue;
+      }
+
+      const [row, created] = await BeneficiaryAssignment.findOrCreate({
+        where: { beneficiaryId: id, entityId, entityType },
+        defaults: { id: undefined as unknown as string, beneficiaryId: id, entityId, entityType },
+      });
+      results.push({ entityId, entityType, created, id: String(row.get('id')) });
     }
 
-    const [row, created] = await BeneficiaryAssignment.findOrCreate({
-      where: { beneficiaryId: id, entityId: String(entityId), entityType },
-      defaults: { id: undefined as unknown as string, beneficiaryId: id, entityId: String(entityId), entityType },
-    });
-
+    // Audit once summarizing batch
     try {
       await AuditLog.create({
         id: uuidv4(),
         userId: req.user.id,
-        action: 'BENEFICIARY_ASSIGN_ENTITY',
-        description: `Associated beneficiary '${beneficiary.pseudonym}' with ${entityType} ${entityId}`,
-        details: JSON.stringify({ beneficiaryId: id, entityId: String(entityId), entityType, created }),
+        action: 'BENEFICIARY_ASSIGN_ENTITY_BATCH',
+        description: `Associated beneficiary '${beneficiary.pseudonym}' to ${results.length} entities (batch)`,
+        details: JSON.stringify({ beneficiaryId: id, results }),
         timestamp: new Date(),
       });
     } catch (_) { /* ignore */ }
 
-    return res.status(200).json({ success: true, data: { id: row.get('id'), created } });
+    const createdCount = results.filter(r => r.created).length;
+    const existingCount = results.length - createdCount;
+    return res.status(200).json({ success: true, data: { created: createdCount, existing: existingCount, results } });
   } catch (error: any) {
-    logger.error('Error associating beneficiary with entity', { id, entityId, entityType, error: error.message });
+    logger.error('Error associating beneficiary with entities', { id, error: error.message });
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
