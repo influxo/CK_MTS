@@ -75,25 +75,48 @@ router.get(
 
 /**
  * @swagger
- * /beneficiaries/demographics:
+ * /beneficiaries/by-entity:
  *   get:
- *     summary: Aggregate beneficiary demographics (age buckets and gender)
- *     description: Decrypts PII to compute aggregates. Strictly restricted. Response is marked no-store.
+ *     summary: List beneficiaries associated to an entity (project or subproject)
  *     tags: [Beneficiaries]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: entityId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: entityType
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [project, subproject]
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [active, inactive]
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
  *     responses:
  *       200:
- *         description: Demographics aggregates
- *       403:
- *         description: Forbidden
+ *         description: Paginated list of beneficiaries associated to the entity
  */
 router.get(
-  '/demographics',
+  '/by-entity',
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
-    beneficiariesController.demographics(req, res);
+    beneficiariesController.listByEntity(req, res);
   }
 );
 
@@ -461,50 +484,28 @@ router.delete(
   }
 );
 
+
 /**
  * @swagger
- * /beneficiaries/by-entity:
+ * /beneficiaries/demographics:
  *   get:
- *     summary: List beneficiaries associated to an entity (project or subproject)
+ *     summary: Aggregate beneficiary demographics (age buckets and gender)
+ *     description: Decrypts PII to compute aggregates. Strictly restricted. Response is marked no-store.
  *     tags: [Beneficiaries]
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: entityId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *       - in: query
- *         name: entityType
- *         required: true
- *         schema:
- *           type: string
- *           enum: [project, subproject]
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *           enum: [active, inactive]
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
  *     responses:
  *       200:
- *         description: Paginated list of beneficiaries associated to the entity
+ *         description: Demographics aggregates
+ *       403:
+ *         description: Forbidden
  */
 router.get(
-  '/by-entity',
+  '/demographics',
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
-    beneficiariesController.listByEntity(req, res);
+    beneficiariesController.demographics(req, res);
   }
 );
 
