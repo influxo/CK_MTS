@@ -317,7 +317,7 @@ export const updateMyProfile = async (req: Request, res: Response) => {
 export const getUserById = async (req: Request, res: Response) => {
   const { id } = req.params;
   logger.info('Getting user by ID', { userId: id });
-  
+
   try {
     // Load user with roles
     const user = await User.findByPk(id, {
@@ -345,9 +345,10 @@ export const getUserById = async (req: Request, res: Response) => {
             attributes: [],
             through: { attributes: [] },
             where: { id: targetUserId },
-            required: true
-          }
-        ]
+            required: true,
+          },
+        ],
+        order: [['name', 'ASC']],
       }),
       Subproject.findAll({
         attributes: ['id', 'name', 'description', 'category', 'status', 'projectId', 'createdAt', 'updatedAt'],
@@ -358,14 +359,15 @@ export const getUserById = async (req: Request, res: Response) => {
             attributes: [],
             through: { attributes: [] },
             where: { id: targetUserId },
-            required: true
+            required: true,
           },
           {
             model: Project,
             as: 'project',
-            attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt']
-          }
-        ]
+            attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
+          },
+        ],
+        order: [['name', 'ASC']],
       }),
       Activity.findAll({
         attributes: ['id', 'name', 'description', 'category', 'frequency', 'status', 'subprojectId', 'createdAt', 'updatedAt'],
@@ -376,7 +378,7 @@ export const getUserById = async (req: Request, res: Response) => {
             attributes: [],
             through: { attributes: [] },
             where: { id: targetUserId },
-            required: true
+            required: true,
           },
           {
             model: Subproject,
@@ -386,12 +388,12 @@ export const getUserById = async (req: Request, res: Response) => {
               {
                 model: Project,
                 as: 'project',
-                attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt']
-              }
-            ]
-          }
-        ]
-      })
+                attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
+              },
+            ],
+          },
+        ],
+      }),
     ]);
 
     type ProjectOut = {
@@ -436,7 +438,7 @@ export const getUserById = async (req: Request, res: Response) => {
       category: p.category ?? null,
       status: p.status,
       createdAt: p.createdAt,
-      updatedAt: p.updatedAt
+      updatedAt: p.updatedAt,
     });
 
     const pickSubproject = (s: any): Omit<SubprojectOut, 'activities'> => ({
@@ -447,7 +449,7 @@ export const getUserById = async (req: Request, res: Response) => {
       status: s.status,
       projectId: s.projectId,
       createdAt: s.createdAt,
-      updatedAt: s.updatedAt
+      updatedAt: s.updatedAt,
     });
 
     const pickActivity = (a: any): ActivityOut => ({
@@ -459,7 +461,7 @@ export const getUserById = async (req: Request, res: Response) => {
       status: a.status,
       subprojectId: a.subprojectId,
       createdAt: a.createdAt,
-      updatedAt: a.updatedAt
+      updatedAt: a.updatedAt,
     });
 
     const projectMap: Map<string, ProjectOut> = new Map();
@@ -504,7 +506,7 @@ export const getUserById = async (req: Request, res: Response) => {
       if (projContainer) {
         let subContainer = projContainer.subprojects.find((sp) => sp.id === subId);
         if (!subContainer) {
-          subContainer = { ...pickSubproject(parentSub), activities: [] };
+          subContainer = { ...pickSubproject(parentSub), activities: [] } as SubprojectOut;
           projContainer.subprojects.push(subContainer);
         }
         if (!subContainer.activities.find((ac) => ac.id === aj.id)) {
@@ -530,14 +532,14 @@ export const getUserById = async (req: Request, res: Response) => {
         lastLogin: user.lastLogin,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
-        assignments: projectsNested
-      }
+        assignments: projectsNested,
+      },
     });
   } catch (error) {
     logger.error(`Error fetching user with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: 'Internal server error',
     });
   }
 };
@@ -547,14 +549,14 @@ export const getUserById = async (req: Request, res: Response) => {
  */
 export const createUser = async (req: Request, res: Response) => {
   logger.info('Creating new user', { email: req.body.email });
-  
+
   try {
     const { firstName, lastName, email, password, roleIds } = req.body;
 
     // Validate required fields
     if (!firstName || !lastName || !email || !password) {
-      logger.warn('Missing required fields for user creation', { 
-        providedFields: { firstName: !!firstName, lastName: !!lastName, email: !!email, password: !!password } 
+      logger.warn('Missing required fields for user creation', {
+        providedFields: { firstName: !!firstName, lastName: !!lastName, email: !!email, password: !!password },
       });
       return res.status(400).json({
         success: false,
@@ -587,27 +589,28 @@ export const createUser = async (req: Request, res: Response) => {
     // Assign roles if provided
     if (roleIds && roleIds.length > 0) {
       logger.info('Assigning roles to user', { userId: user.id, roleIds });
+
       let roles: Role[] = [];
-      
+
       try {
         // First try to find roles directly by ID (in case they're valid UUIDs)
         roles = await Role.findAll({
           where: {
             id: {
-              [Op.in]: roleIds.map((id: string | number) => String(id))
-            }
-          }
+              [Op.in]: roleIds.map((id: string | number) => String(id)),
+            },
+          },
         });
-        
+
         // If no roles found, try to find by index position
         if (roles.length === 0) {
           logger.info('No roles found by direct ID, trying to find by index', { roleIds });
-          
+
           // Get all roles ordered by creation date
           const allRoles = await Role.findAll({
-            order: [['createdAt', 'ASC']]
+            order: [['createdAt', 'ASC']],
           });
-          
+
           // Map numeric IDs to actual role objects
           roles = roleIds
             .map((id: string | number) => {
@@ -615,10 +618,10 @@ export const createUser = async (req: Request, res: Response) => {
               return index >= 0 && index < allRoles.length ? allRoles[index] : null;
             })
             .filter((role: Role | null): role is Role => role !== null);
-            
-          logger.info('Found roles by index position', { 
+
+          logger.info('Found roles by index position', {
             roleCount: roles.length,
-            roleNames: roles.map((r: Role) => r.name)
+            roleNames: roles.map((r: Role) => r.name),
           });
         }
       } catch (error) {
@@ -628,10 +631,10 @@ export const createUser = async (req: Request, res: Response) => {
 
       if (roles.length > 0) {
         await Promise.all(
-          roles.map((role: Role) => 
+          roles.map((role: Role) =>
             UserRole.create({
               userId: user.id,
-              roleId: role.id
+              roleId: role.id,
             })
           )
         );
@@ -643,7 +646,7 @@ export const createUser = async (req: Request, res: Response) => {
 
     // Get user with roles
     const userWithRoles = await User.findByPk(user.id, {
-      include: [{ model: Role, as: 'roles' }]
+      include: [{ model: Role, as: 'roles' }],
     });
 
     logger.info('User created successfully', { userId: user.id });
@@ -668,7 +671,7 @@ export const createUser = async (req: Request, res: Response) => {
 export const updateUser = async (req: Request, res: Response) => {
   const { id } = req.params;
   logger.info('Updating user', { userId: id });
-  
+
   try {
     const { firstName, lastName, email, roleIds, status } = req.body;
 
@@ -678,7 +681,7 @@ export const updateUser = async (req: Request, res: Response) => {
       logger.warn('User not found for update', { userId: id });
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: 'User not found',
       });
     }
 
@@ -690,7 +693,7 @@ export const updateUser = async (req: Request, res: Response) => {
         logger.warn('Email is already in use', { email });
         return res.status(400).json({
           success: false,
-          message: 'Email is already in use'
+          message: 'Email is already in use',
         });
       }
     }
@@ -708,37 +711,37 @@ export const updateUser = async (req: Request, res: Response) => {
     // Update roles if provided
     if (roleIds && Array.isArray(roleIds)) {
       logger.info('Updating user roles', { userId: id, roleIds });
-      
+
       // Remove existing roles
       await UserRole.destroy({
         where: {
-          userId: id
-        }
+          userId: id,
+        },
       });
 
       // Since roleIds from frontend might be numeric but our DB uses UUIDs,
       // we need to query roles differently
       let roles: Role[] = [];
-      
+
       try {
         // First try to find roles directly by ID (in case they're valid UUIDs)
         roles = await Role.findAll({
           where: {
             id: {
-              [Op.in]: roleIds.map((id: string | number) => String(id))
-            }
-          }
+              [Op.in]: roleIds.map((id: string | number) => String(id)),
+            },
+          },
         });
-        
+
         // If no roles found, try to find by index position
         if (roles.length === 0) {
           logger.info('No roles found by direct ID, trying to find by index', { roleIds });
-          
+
           // Get all roles ordered by creation date
           const allRoles = await Role.findAll({
-            order: [['createdAt', 'ASC']]
+            order: [['createdAt', 'ASC']],
           });
-          
+
           // Map numeric IDs to actual role objects
           roles = roleIds
             .map((id: string | number) => {
@@ -746,10 +749,10 @@ export const updateUser = async (req: Request, res: Response) => {
               return index >= 0 && index < allRoles.length ? allRoles[index] : null;
             })
             .filter((role: Role | null): role is Role => role !== null);
-            
-          logger.info('Found roles by index position', { 
+
+          logger.info('Found roles by index position', {
             roleCount: roles.length,
-            roleNames: roles.map((r: Role) => r.name)
+            roleNames: roles.map((r: Role) => r.name),
           });
         }
       } catch (error) {
@@ -759,10 +762,10 @@ export const updateUser = async (req: Request, res: Response) => {
 
       if (roles.length > 0) {
         await Promise.all(
-          roles.map((role: Role) => 
+          roles.map((role: Role) =>
             UserRole.create({
               userId: id,
-              roleId: role.id
+              roleId: role.id,
             })
           )
         );
@@ -774,21 +777,21 @@ export const updateUser = async (req: Request, res: Response) => {
 
     // Get updated user with roles
     const updatedUser = await User.findByPk(id, {
-      include: [{ model: Role, as: 'roles' }]
+      include: [{ model: Role, as: 'roles' }],
     });
 
     logger.info('User updated successfully', { userId: id });
     return res.status(200).json({
       success: true,
       message: 'User updated successfully',
-      data: updatedUser
+      data: updatedUser,
     });
   } catch (error: any) {
     logger.error(`Error updating user with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
       message: 'Error updating user',
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -799,15 +802,15 @@ export const updateUser = async (req: Request, res: Response) => {
 export const deleteUser = async (req: Request, res: Response) => {
   const { id } = req.params;
   logger.info('Deleting user', { userId: id });
-  
+
   try {
     const user = await User.findByPk(id);
-    
+
     if (!user) {
       logger.warn('User not found for deletion', { userId: id });
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: 'User not found',
       });
     }
 
@@ -815,8 +818,8 @@ export const deleteUser = async (req: Request, res: Response) => {
     logger.info('Deleting user roles', { userId: id });
     await UserRole.destroy({
       where: {
-        userId: id
-      }
+        userId: id,
+      },
     });
 
     // Delete user
@@ -826,14 +829,14 @@ export const deleteUser = async (req: Request, res: Response) => {
     logger.info('User deleted successfully', { userId: id });
     return res.status(200).json({
       success: true,
-      message: 'User deleted successfully'
+      message: 'User deleted successfully',
     });
   } catch (error: any) {
     logger.error(`Error deleting user with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
       message: 'Error deleting user',
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -844,7 +847,7 @@ export const deleteUser = async (req: Request, res: Response) => {
 export const resetPassword = async (req: Request, res: Response) => {
   const { id } = req.params;
   logger.info('Resetting user password', { userId: id });
-  
+
   try {
     const { newPassword } = req.body;
 
@@ -852,17 +855,17 @@ export const resetPassword = async (req: Request, res: Response) => {
       logger.warn('New password not provided for reset', { userId: id });
       return res.status(400).json({
         success: false,
-        message: 'New password is required'
+        message: 'New password is required',
       });
     }
 
     const user = await User.findByPk(id);
-    
+
     if (!user) {
       logger.warn('User not found for password reset', { userId: id });
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: 'User not found',
       });
     }
 
@@ -873,20 +876,20 @@ export const resetPassword = async (req: Request, res: Response) => {
     // Update user password
     logger.info('Updating user password', { userId: id });
     await user.update({
-      password: hashedPassword
+      password: hashedPassword,
     });
 
     logger.info('Password reset successful', { userId: id });
     return res.status(200).json({
       success: true,
-      message: 'Password reset successful'
+      message: 'Password reset successful',
     });
   } catch (error: any) {
     logger.error(`Error resetting password for user with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
       message: 'Error resetting password',
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -896,7 +899,7 @@ export const resetPassword = async (req: Request, res: Response) => {
  */
 export const inviteUser = async (req: Request, res: Response) => {
   logger.info('Inviting new user', { email: req.body.email });
-  
+
   try {
     const { firstName, lastName, email, roleIds, message, projectId, subprojectId } = req.body;
     const invitingUser = (req as any).user;
@@ -904,8 +907,8 @@ export const inviteUser = async (req: Request, res: Response) => {
 
     // Validate required fields
     if (!firstName || !lastName || !email || !roleIds || !roleIds.length) {
-      logger.warn('Missing required fields for user invitation', { 
-        providedFields: { firstName: !!firstName, lastName: !!lastName, email: !!email, roleIds: !!roleIds && roleIds.length > 0 } 
+      logger.warn('Missing required fields for user invitation', {
+        providedFields: { firstName: !!firstName, lastName: !!lastName, email: !!email, roleIds: !!roleIds && roleIds.length > 0 },
       });
       return res.status(400).json({
         success: false,
@@ -926,31 +929,38 @@ export const inviteUser = async (req: Request, res: Response) => {
     // Generate a random password (user will reset this)
     logger.info('Generating temporary credentials', { email });
     const temporaryPassword = crypto.randomBytes(12).toString('hex');
-    
+
     // Generate verification token
     const verificationToken = crypto.randomBytes(32).toString('hex');
-    
+
     // Set token expiry (7 days from now)
     const tokenExpiry = new Date();
     tokenExpiry.setDate(tokenExpiry.getDate() + 7);
     logger.info('Token expiry set', { email, expiryDate: tokenExpiry });
 
-    // Validate provided association targets if any
+    // Optional batch assignments: accept either assignments: [{entityId, entityType}], or entities: [...], or fallback to single projectId/subprojectId
+    const rawAssign = Array.isArray(req.body?.assignments)
+      ? req.body.assignments
+      : (Array.isArray(req.body?.entities) ? req.body.entities : []);
+    // Validate provided association targets if any (batch-aware)
     let targetProject: Project | null = null;
     let targetSubproject: Subproject | null = null;
-    if (projectId && subprojectId) {
-      logger.warn('Both projectId and subprojectId provided; prioritizing subproject association', { projectId, subprojectId });
-    }
-    if (subprojectId) {
-      targetSubproject = await Subproject.findByPk(subprojectId);
-      if (!targetSubproject) {
-        return res.status(404).json({ success: false, message: 'Subproject not found' });
-      }
-    } else if (projectId) {
-      targetProject = await Project.findByPk(projectId);
-      if (!targetProject) {
-        return res.status(404).json({ success: false, message: 'Project not found' });
-      }
+    const associations: Array<{ entityId: string; entityType: 'project' | 'subproject' }> =
+      Array.isArray(rawAssign) && rawAssign.length > 0
+        ? rawAssign
+        : (projectId || subprojectId)
+          ? [{ entityId: String(subprojectId || projectId), entityType: subprojectId ? 'subproject' as const : 'project' as const }]
+          : [];
+
+    // Normalize and dedupe associations
+    const normalized: Array<{ entityId: string; entityType: 'project' | 'subproject' }> = [];
+    const seen = new Set<string>();
+    for (const a of associations) {
+      const eId = String(a?.entityId || '').trim();
+      const eType = String(a?.entityType || '').trim() as 'project' | 'subproject';
+      if (!eId || !['project', 'subproject'].includes(eType)) continue;
+      const k = `${eType}:${eId}`;
+      if (!seen.has(k)) { seen.add(k); normalized.push({ entityId: eId, entityType: eType }); }
     }
 
     // Create user with invited status
@@ -965,33 +975,33 @@ export const inviteUser = async (req: Request, res: Response) => {
       emailVerified: false,
       verificationToken,
       tokenExpiry,
-      invitedBy: invitingUser.id
+      invitedBy: invitingUser.id,
     });
 
     // Assign roles
     logger.info('Assigning roles to invited user', { userId: user.id, roleIds });
-    
+
     let roles: Role[] = [];
-    
+
     try {
       // First try to find roles directly by ID (in case they're valid UUIDs)
       roles = await Role.findAll({
         where: {
           id: {
-            [Op.in]: roleIds.map((id: string | number) => String(id))
-          }
-        }
+            [Op.in]: roleIds.map((id: string | number) => String(id)),
+          },
+        },
       });
-      
+
       // If no roles found, try to find by index position
       if (roles.length === 0) {
         logger.info('No roles found by direct ID, trying to find by index', { roleIds });
-        
+
         // Get all roles ordered by creation date
         const allRoles = await Role.findAll({
-          order: [['createdAt', 'ASC']]
+          order: [['createdAt', 'ASC']],
         });
-        
+
         // Map numeric IDs to actual role objects
         roles = roleIds
           .map((id: string | number) => {
@@ -999,10 +1009,10 @@ export const inviteUser = async (req: Request, res: Response) => {
             return index >= 0 && index < allRoles.length ? allRoles[index] : null;
           })
           .filter((role: Role | null): role is Role => role !== null);
-          
-        logger.info('Found roles by index position', { 
+
+        logger.info('Found roles by index position', {
           roleCount: roles.length,
-          roleNames: roles.map((r: Role) => r.name)
+          roleNames: roles.map((r: Role) => r.name),
         });
       }
     } catch (error) {
@@ -1024,30 +1034,89 @@ export const inviteUser = async (req: Request, res: Response) => {
       logger.warn('No valid roles found to assign', { roleIds });
     }
 
-    // Automatically associate user with project/subproject if provided
-    if (targetSubproject) {
-      try {
-        await SubprojectUser.create({ id: uuidv4(), userId: user.id, subprojectId: targetSubproject.id });
-        await AuditLog.create({
-          userId: invitingUser.id,
-          action: 'USER_ASSIGNED_TO_SUBPROJECT',
-          description: `Invited user assigned to subproject '${targetSubproject.name}'`,
-          details: JSON.stringify({ userId: user.id, subprojectId: targetSubproject.id }),
-        });
-      } catch (assignErr: any) {
-        logger.error('Failed assigning user to subproject during invitation', { error: assignErr?.message });
+    // Automatically associate user with one or multiple entities if provided
+    const assignmentResults: Array<{ entityId: string; entityType: 'project' | 'subproject'; created: boolean }> = [];
+    if (normalized.length > 0) {
+      for (const { entityId, entityType } of normalized) {
+        try {
+          if (entityType === 'subproject') {
+            const sub = await Subproject.findByPk(entityId);
+            if (!sub) { assignmentResults.push({ entityId, entityType, created: false }); continue; }
+            const [rel, created] = await SubprojectUser.findOrCreate({
+              where: { userId: user.id, subprojectId: sub.id },
+              defaults: { id: uuidv4(), userId: user.id, subprojectId: sub.id },
+            });
+            assignmentResults.push({ entityId: sub.id as any, entityType, created });
+            await AuditLog.create({
+              userId: invitingUser.id,
+              action: 'USER_ASSIGNED_TO_SUBPROJECT',
+              description: `Invited user assigned to subproject '${sub.name}'`,
+              details: JSON.stringify({ userId: user.id, subprojectId: sub.id, created }),
+            });
+          } else {
+            const proj = await Project.findByPk(entityId);
+            if (!proj) { assignmentResults.push({ entityId, entityType, created: false }); continue; }
+            const [rel, created] = await ProjectUser.findOrCreate({
+              where: { userId: user.id, projectId: proj.id },
+              defaults: { id: uuidv4(), userId: user.id, projectId: proj.id },
+            });
+            assignmentResults.push({ entityId: proj.id as any, entityType, created });
+            await AuditLog.create({
+              userId: invitingUser.id,
+              action: 'USER_ASSIGNED_TO_PROJECT',
+              description: `Invited user assigned to project '${proj.name}'`,
+              details: JSON.stringify({ userId: user.id, projectId: proj.id, created }),
+            });
+          }
+        } catch (assignErr: any) {
+          logger.error('Failed assigning user during invitation', { entityId, entityType, error: assignErr?.message });
+          assignmentResults.push({ entityId, entityType, created: false });
+        }
       }
-    } else if (targetProject) {
-      try {
-        await ProjectUser.create({ id: uuidv4(), userId: user.id, projectId: targetProject.id });
-        await AuditLog.create({
-          userId: invitingUser.id,
-          action: 'USER_ASSIGNED_TO_PROJECT',
-          description: `Invited user assigned to project '${targetProject.name}'`,
-          details: JSON.stringify({ userId: user.id, projectId: targetProject.id }),
-        });
-      } catch (assignErr: any) {
-        logger.error('Failed assigning user to project during invitation', { error: assignErr?.message });
+    } else {
+      // Backward-compat single assignment path
+      if (subprojectId) {
+        targetSubproject = await Subproject.findByPk(subprojectId);
+        if (targetSubproject) {
+          try {
+            const [rel, created] = await SubprojectUser.findOrCreate({
+              where: { userId: user.id, subprojectId: targetSubproject.id },
+              defaults: { id: uuidv4(), userId: user.id, subprojectId: targetSubproject.id },
+            });
+            assignmentResults.push({ entityId: targetSubproject.id as any, entityType: 'subproject', created });
+            await AuditLog.create({
+              userId: invitingUser.id,
+              action: 'USER_ASSIGNED_TO_SUBPROJECT',
+              description: `Invited user assigned to subproject '${targetSubproject.name}'`,
+              details: JSON.stringify({ userId: user.id, subprojectId: targetSubproject.id, created }),
+            });
+          } catch (e: any) {
+            logger.error('Failed assigning user to subproject during invitation', { error: e?.message });
+          }
+        } else {
+          return res.status(404).json({ success: false, message: 'Subproject not found' });
+        }
+      } else if (projectId) {
+        targetProject = await Project.findByPk(projectId);
+        if (targetProject) {
+          try {
+            const [rel, created] = await ProjectUser.findOrCreate({
+              where: { userId: user.id, projectId: targetProject.id },
+              defaults: { id: uuidv4(), userId: user.id, projectId: targetProject.id },
+            });
+            assignmentResults.push({ entityId: targetProject.id as any, entityType: 'project', created });
+            await AuditLog.create({
+              userId: invitingUser.id,
+              action: 'USER_ASSIGNED_TO_PROJECT',
+              description: `Invited user assigned to project '${targetProject.name}'`,
+              details: JSON.stringify({ userId: user.id, projectId: targetProject.id, created }),
+            });
+          } catch (e: any) {
+            logger.error('Failed assigning user to project during invitation', { error: e?.message });
+          }
+        } else {
+          return res.status(404).json({ success: false, message: 'Project not found' });
+        }
       }
     }
 
@@ -1063,15 +1132,15 @@ export const inviteUser = async (req: Request, res: Response) => {
 
     // TODO: Send invitation email with verification link
     logger.info('User invited successfully, email should be sent', { userId: user.id });
-    
+
     try {
       // Calculate expiration date for display in email
       const expirationDate = new Date();
       expirationDate.setDate(expirationDate.getDate() + 7);
-      const formattedExpiration = expirationDate.toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
+      const formattedExpiration = expirationDate.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
       });
       // Send invitation email
       await sendInvitationEmail({
@@ -1082,7 +1151,7 @@ export const inviteUser = async (req: Request, res: Response) => {
         inviteLink: acceptInvitationLink,
         message,
       });
-      
+
       logger.info('Invitation email sent successfully', { email });
     } catch (emailError) {
       logger.error('Failed to send invitation email', emailError);
@@ -1097,8 +1166,7 @@ export const inviteUser = async (req: Request, res: Response) => {
         user: userWithRoles,
         verificationToken, // In production, remove this from the response
         acceptInvitationLink,
-        projectAssignment: targetProject ? { projectId: targetProject.id, name: targetProject.name } : undefined,
-        subprojectAssignment: targetSubproject ? { subprojectId: targetSubproject.id, name: targetSubproject.name } : undefined,
+        assignmentResults,
       },
     });
   } catch (error: any) {
@@ -1117,7 +1185,7 @@ export const inviteUser = async (req: Request, res: Response) => {
 export const verifyEmail = async (req: Request, res: Response) => {
   const { token, email } = req.query;
   logger.info('Verifying email', { email });
-  
+
   try {
     if (!token || !email) {
       logger.warn('Missing verification token or email', { token: !!token, email: !!email });
@@ -1187,6 +1255,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
  */
 export const acceptInvitation = async (req: Request, res: Response) => {
   logger.info('Accept invitation attempt');
+
   try {
     const { token, email, password } = req.body;
 

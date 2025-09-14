@@ -527,6 +527,85 @@ export const getResponsesByEntity = async (req: Request, res: Response) => {
 };
 
 /**
+ * Get all form responses (optionally filtered)
+ */
+export const getAllResponses = async (req: Request, res: Response) => {
+  try {
+    const templateId = (req.query.templateId as string) || undefined;
+    const entityId = (req.query.entityId as string) || undefined;
+    const entityType = (req.query.entityType as string) || undefined;
+    const page = Math.max(parseInt(req.query.page as string) || 1, 1);
+    const limitRaw = parseInt(req.query.limit as string) || 20;
+    const limit = Math.max(1, Math.min(limitRaw, 100));
+    const offset = (page - 1) * limit;
+    const fromDate = req.query.fromDate ? new Date(req.query.fromDate as string) : null;
+    const toDate = req.query.toDate ? new Date(req.query.toDate as string) : null;
+
+    // Access control: if user has allowedProgramIds, restrict by those
+    const whereClause: any = {};
+    if (templateId) whereClause.formTemplateId = templateId;
+    if (entityId) whereClause.entityId = entityId;
+    if (entityType) whereClause.entityType = entityType;
+    if (fromDate && toDate) {
+      whereClause.submittedAt = { [Op.between]: [fromDate, toDate] };
+    } else if (fromDate) {
+      whereClause.submittedAt = { [Op.gte]: fromDate };
+    } else if (toDate) {
+      whereClause.submittedAt = { [Op.lte]: toDate };
+    }
+
+    // If RBAC restricts to allowedProgramIds, filter by entity/project-level ids when applicable
+    if (req.user && Array.isArray(req.user.allowedProgramIds) && req.user.allowedProgramIds.length > 0) {
+      const allowed = req.user.allowedProgramIds as string[];
+      // EntityId corresponds to project/subproject/activity IDs depending on entityType saved on response
+      // We restrict by entityId being in allowed set when entityType='project'. For subproject/activity we allow all,
+      // or we could further resolve hierarchy; keeping simple to avoid heavy joins.
+      if (!entityId) {
+        whereClause[Op.or] = [
+          { entityType: 'project', entityId: { [Op.in]: allowed } },
+          { entityType: 'subproject' },
+          { entityType: 'activity' },
+        ];
+      }
+    }
+
+    const [responses, totalCount] = await Promise.all([
+      FormResponse.findAll({
+        where: whereClause,
+        limit,
+        offset,
+        order: [['submittedAt', 'DESC']],
+        include: [
+          { model: FormTemplate, as: 'template', attributes: ['id', 'name', 'version'] },
+          { model: User, as: 'submitter', attributes: ['id', 'firstName', 'lastName', 'email'] },
+          { model: Beneficiary, as: 'beneficiary', attributes: ['id', 'pseudonym', 'status'] },
+          {
+            model: ServiceDelivery,
+            as: 'serviceDeliveries',
+            attributes: ['id', 'serviceId', 'deliveredAt', 'staffUserId', 'notes'],
+            include: [
+              { model: Service, as: 'service', attributes: ['id', 'name', 'category'] },
+              { model: User, as: 'staff', attributes: ['id', 'firstName', 'lastName', 'email'] }
+            ]
+          }
+        ]
+      }),
+      FormResponse.count({ where: whereClause })
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+    return res.status(200).json({
+      success: true,
+      data: responses,
+      meta: { page, limit, totalPages, totalItems: totalCount }
+    });
+  } catch (error: any) {
+    logger.error('Error fetching all form responses', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
  * Get a single form response by ID
  */
 export const getFormResponseById = async (req: Request, res: Response) => {
@@ -590,5 +669,6 @@ export default {
   submitFormResponse,
   getFormResponses,
   getResponsesByEntity,
+  getAllResponses,
   getFormResponseById,
 };

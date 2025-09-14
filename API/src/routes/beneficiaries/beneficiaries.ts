@@ -120,6 +120,31 @@ router.get(
   }
 );
 
+// Important: static routes must be declared before dynamic parameter routes like '/:id'
+/**
+ * @swagger
+ * /beneficiaries/demographics:
+ *   get:
+ *     summary: Aggregate beneficiary demographics (age buckets and gender)
+ *     description: Decrypts PII to compute aggregates. Strictly restricted. Response is marked no-store.
+ *     tags: [Beneficiaries]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Demographics aggregates
+ *       403:
+ *         description: Forbidden
+ */
+router.get(
+  '/demographics',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  (req: Request, res: Response): void => {
+    beneficiariesController.demographics(req, res);
+  }
+);
+
 /**
  * @swagger
  * /beneficiaries/{id}:
@@ -485,29 +510,7 @@ router.delete(
 );
 
 
-/**
- * @swagger
- * /beneficiaries/demographics:
- *   get:
- *     summary: Aggregate beneficiary demographics (age buckets and gender)
- *     description: Decrypts PII to compute aggregates. Strictly restricted. Response is marked no-store.
- *     tags: [Beneficiaries]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Demographics aggregates
- *       403:
- *         description: Forbidden
- */
-router.get(
-  '/demographics',
-  authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
-  (req: Request, res: Response): void => {
-    beneficiariesController.demographics(req, res);
-  }
-);
+ 
 
 /**
  * @swagger

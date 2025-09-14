@@ -814,4 +814,81 @@ router.get(
   }
 );
 
+/**
+ * @swagger
+ * /forms/responses:
+ *   get:
+ *     summary: Get all form responses with optional filters
+ *     tags: [Forms]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: templateId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Optional filter to only include responses for a specific form template
+ *       - in: query
+ *         name: entityId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Optional entity id filter
+ *       - in: query
+ *         name: entityType
+ *         schema:
+ *           type: string
+ *           enum: [project, subproject, activity]
+ *         required: false
+ *         description: Optional entity type filter
+ *       - in: query
+ *         name: fromDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         required: false
+ *         description: Filter responses submitted on/after this timestamp
+ *       - in: query
+ *         name: toDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         required: false
+ *         description: Filter responses submitted on/before this timestamp
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         required: false
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: List of all form responses
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - user does not have access
+ */
+router.get(
+  "/responses",
+  authenticate,
+  (req: Request, res: Response): void => {
+    formsController.responses.getAllResponses(req, res);
+  }
+);
+
 export default router;
