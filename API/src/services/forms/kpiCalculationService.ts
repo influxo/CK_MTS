@@ -1,5 +1,5 @@
 import { Op, fn, col, where, literal } from 'sequelize';
-import { FormResponse, FormField, Kpi, ServiceDelivery } from '../../models';
+import { FormResponse, FormField, Kpi, ServiceDelivery, Service } from '../../models';
 import { createLogger } from '../../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -576,6 +576,14 @@ class KpiCalculationService {
 
     // Optional ad-hoc data filters
     const ands: any[] = [];
+    // If service filters are provided, constrain responses to those that have matching ServiceDeliveries
+    if (filters.serviceId) {
+      ands.push(literal(`id IN (SELECT "formResponseId" FROM service_deliveries WHERE "serviceId" = '${this.esc(filters.serviceId)}')`));
+    }
+    if (filters.serviceIds && filters.serviceIds.length) {
+      const list = filters.serviceIds.map(id => `'${this.esc(id)}'`).join(',');
+      ands.push(literal(`id IN (SELECT "formResponseId" FROM service_deliveries WHERE "serviceId" IN (${list}))`));
+    }
     if (filters.dataFilters && Array.isArray(filters.dataFilters)) {
       ands.push(...this.buildDataFilterLiterals(filters.dataFilters));
     }
@@ -625,8 +633,18 @@ class KpiCalculationService {
     if (filters.beneficiaryId) whereClause.beneficiaryId = filters.beneficiaryId;
     if (filters.beneficiaryIds && filters.beneficiaryIds.length) whereClause.beneficiaryId = { [Op.in]: filters.beneficiaryIds };
 
-    if (extraAnd.length) {
-      (whereClause as any)[Op.and] = [ ...(((whereClause as any)[Op.and] as any[]) || []), ...extraAnd ];
+    // Form template filters (apply via subquery on form_responses when deliveries are linked to responses)
+    const ands: any[] = [];
+    if (filters.formTemplateId) {
+      ands.push(literal(`"formResponseId" IN (SELECT id FROM form_responses WHERE "formTemplateId" = '${this.esc(filters.formTemplateId)}')`));
+    }
+    if (filters.formTemplateIds && filters.formTemplateIds.length) {
+      const list = filters.formTemplateIds.map(id => `'${this.esc(id)}'`).join(',');
+      ands.push(literal(`"formResponseId" IN (SELECT id FROM form_responses WHERE "formTemplateId" IN (${list}))`));
+    }
+
+    if (extraAnd.length || ands.length) {
+      (whereClause as any)[Op.and] = [ ...(((whereClause as any)[Op.and] as any[]) || []), ...ands, ...extraAnd ];
     }
 
     return whereClause;
@@ -703,10 +721,11 @@ class KpiCalculationService {
     try {
       const unit = filters.groupBy;
 
+      let rows: any[] = [];
       if (metric === 'submissions') {
         const where = this.buildResponseWhere(filters);
         const bucketExpr = fn('date_trunc', unit, col('submittedAt'));
-        const rows = await FormResponse.findAll({
+        rows = await FormResponse.findAll({
           where,
           attributes: [
             [bucketExpr, 'periodStart'],
@@ -716,17 +735,10 @@ class KpiCalculationService {
           order: [[col('periodStart'), 'ASC']],
           raw: true,
         }) as any[];
-        return {
-          metric,
-          granularity: unit,
-          series: rows.map(r => ({ periodStart: new Date(r.periodStart), value: Number(r.value ?? 0) })),
-        };
-      }
-
-      if (metric === 'serviceDeliveries') {
+      } else if (metric === 'serviceDeliveries') {
         const where = this.buildDeliveryWhere(filters);
         const bucketExpr = fn('date_trunc', unit, col('deliveredAt'));
-        const rows = await ServiceDelivery.findAll({
+        rows = await ServiceDelivery.findAll({
           where,
           attributes: [
             [bucketExpr, 'periodStart'],
@@ -736,35 +748,68 @@ class KpiCalculationService {
           order: [[col('periodStart'), 'ASC']],
           raw: true,
         }) as any[];
-        return {
-          metric,
-          granularity: unit,
-          series: rows.map(r => ({ periodStart: new Date(r.periodStart), value: Number(r.value ?? 0) })),
-        };
+      } else {
+        // uniqueBeneficiaries: count distinct beneficiaryId per bucket using ServiceDelivery (served)
+        const where = this.buildDeliveryWhere(filters, [literal('"beneficiaryId" IS NOT NULL')]);
+        const bucketExpr = fn('date_trunc', unit, col('deliveredAt'));
+        rows = await ServiceDelivery.findAll({
+          where,
+          attributes: [
+            [bucketExpr, 'periodStart'],
+            [literal('COUNT(DISTINCT "beneficiaryId")') as any, 'value'],
+          ],
+          group: [bucketExpr],
+          order: [[col('periodStart'), 'ASC']],
+          raw: true,
+        }) as any[];
       }
 
-      // uniqueBeneficiaries: count distinct beneficiaryId per bucket using ServiceDelivery (served)
-      const where = this.buildDeliveryWhere(filters, [literal('"beneficiaryId" IS NOT NULL')]);
-      const bucketExpr = fn('date_trunc', unit, col('deliveredAt'));
-      const rows = await ServiceDelivery.findAll({
-        where,
-        attributes: [
-          [bucketExpr, 'periodStart'],
-          [literal('COUNT(DISTINCT "beneficiaryId")') as any, 'value'],
-        ],
-        group: [bucketExpr],
-        order: [[col('periodStart'), 'ASC']],
-        raw: true,
-      }) as any[];
+      const series = rows.map(r => ({ periodStart: new Date(r.periodStart), value: Number(r.value ?? 0) }));
+
+      // Build summary: totals and top services for the same filter context
+      const summaryTotals = await this.calculateDynamicSummary(filters);
+      const mostFrequentServices = await this.getTopServices(filters, 5);
+
       return {
         metric,
         granularity: unit,
-        series: rows.map(r => ({ periodStart: new Date(r.periodStart), value: Number(r.value ?? 0) })),
+        series,
+        summary: {
+          totalSubmissions: summaryTotals.submissions,
+          totalServiceDeliveries: summaryTotals.serviceDeliveries,
+          totalUniqueBeneficiaries: summaryTotals.uniqueBeneficiariesByDeliveries,
+          mostFrequentServices,
+        }
       };
     } catch (error: any) {
       logger.error(`Error calculating dynamic KPI series: ${error.message}`);
       throw new Error(`Error calculating dynamic KPI series: ${error.message}`);
     }
+  }
+
+  /**
+   * Top services by number of deliveries under current filters
+   */
+  private async getTopServices(filters: KpiFilterOptions, limit: number = 5): Promise<Array<{ serviceId: string; name: string | null; count: number }>> {
+    const where = this.buildDeliveryWhere(filters);
+    const rows = await ServiceDelivery.findAll({
+      where,
+      attributes: [
+        'serviceId',
+        [literal('COUNT(*)') as any, 'count']
+      ],
+      include: [{ model: Service, as: 'service', attributes: ['name'] }],
+      group: ['serviceId', 'service.id', 'service.name'],
+      order: [[literal('count'), 'DESC']],
+      limit,
+      raw: false,
+    }) as any[];
+
+    return rows.map(r => ({
+      serviceId: r.serviceId,
+      name: r.service?.name ?? null,
+      count: Number((r as any).get?.('count') ?? (r as any).dataValues?.count ?? 0),
+    }));
   }
 }
 
@@ -827,6 +872,12 @@ export interface DynamicSeriesResult {
   metric: 'submissions' | 'serviceDeliveries' | 'uniqueBeneficiaries';
   granularity: 'day' | 'week' | 'month' | 'quarter' | 'year';
   series: Array<{ periodStart: Date; value: number }>;
+  summary?: {
+    totalSubmissions: number;
+    totalServiceDeliveries: number;
+    totalUniqueBeneficiaries: number;
+    mostFrequentServices: Array<{ serviceId: string; name: string | null; count: number }>;
+  };
 }
 
 export default new KpiCalculationService();

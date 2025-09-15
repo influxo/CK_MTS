@@ -686,9 +686,63 @@ router.get(
  *       - in: query
  *         name: formTemplateIds
  *         schema: { type: string }
+ *       - in: query
+ *         name: dataFilters
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: JSON array string of ad-hoc filters, e.g. [{"field":"gender","op":"eq","value":"F"}]
  *     responses:
  *       200:
- *         description: Time series for the selected metric
+ *         description: Time series for the selected metric, with summary totals and most frequent services
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     metric:
+ *                       type: string
+ *                       enum: [submissions, serviceDeliveries, uniqueBeneficiaries]
+ *                     granularity:
+ *                       type: string
+ *                       enum: [day, week, month, quarter, year]
+ *                     series:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           periodStart:
+ *                             type: string
+ *                             format: date-time
+ *                           value:
+ *                             type: number
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalSubmissions:
+ *                           type: integer
+ *                         totalServiceDeliveries:
+ *                           type: integer
+ *                         totalUniqueBeneficiaries:
+ *                           type: integer
+ *                         mostFrequentServices:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               serviceId:
+ *                                 type: string
+ *                                 format: uuid
+ *                               name:
+ *                                 type: string
+ *                                 nullable: true
+ *                               count:
+ *                                 type: integer
  */
 router.get(
   "/metrics/series",
