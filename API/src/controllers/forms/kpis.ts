@@ -565,6 +565,22 @@ export const getMetricsSeries = async (req: Request, res: Response) => {
     if (req.query.formTemplateId) filters.formTemplateId = req.query.formTemplateId as string;
     if (req.query.formTemplateIds) filters.formTemplateIds = String(req.query.formTemplateIds).split(',').filter(Boolean);
 
+    // Optional ad-hoc data filters (JSON array)
+    if (req.query.dataFilters) {
+      try {
+        const parsed = JSON.parse(req.query.dataFilters as string);
+        if (Array.isArray(parsed)) {
+          (filters as any).dataFilters = parsed;
+        } else {
+          logger.warn('dataFilters is not an array for metrics series');
+          return res.status(400).json({ success: false, message: 'dataFilters must be a JSON array' });
+        }
+      } catch (e: any) {
+        logger.warn('Failed to parse dataFilters for metrics series', { error: e?.message });
+        return res.status(400).json({ success: false, message: 'Invalid JSON in dataFilters' });
+      }
+    }
+
     const series = await kpiCalculationService.calculateDynamicSeries(metric as any, filters);
     return res.status(200).json({ success: true, data: series });
   } catch (error: any) {
