@@ -551,19 +551,36 @@ class KpiCalculationService {
       whereClause.submittedAt = { [Op.lte]: filters.toDate };
     }
 
-    // Entity filters
-    if (filters.entityId && filters.entityType) {
-      whereClause.entityId = filters.entityId;
-      whereClause.entityType = filters.entityType;
-    } else if (filters.projectId) {
-      whereClause.entityId = filters.projectId;
-      whereClause.entityType = 'project';
+    // Entity filters with hierarchical expansion
+    const entityScopeOr: any[] = [];
+    if (filters.projectId) {
+      // Include project itself + its subprojects + activities under those subprojects
+      const pid = this.esc(filters.projectId);
+      entityScopeOr.push(literal(`("entityType" = 'project' AND "entityId" = '${pid}')`));
+      entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (SELECT id FROM subprojects WHERE "projectId" = '${pid}'))`));
+      entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT a.id FROM activities a JOIN subprojects s ON a."subprojectId" = s.id WHERE s."projectId" = '${pid}'))`));
     } else if (filters.subprojectId) {
-      whereClause.entityId = filters.subprojectId;
-      whereClause.entityType = 'subproject';
+      // Include subproject itself + its activities
+      const sid = this.esc(filters.subprojectId);
+      entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" = '${sid}')`));
+      entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT id FROM activities WHERE "subprojectId" = '${sid}'))`));
     } else if (filters.activityId) {
       whereClause.entityId = filters.activityId;
       whereClause.entityType = 'activity';
+    } else if (filters.entityId && filters.entityType) {
+      if (filters.entityType === 'project') {
+        const pid = this.esc(filters.entityId);
+        entityScopeOr.push(literal(`("entityType" = 'project' AND "entityId" = '${pid}')`));
+        entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (SELECT id FROM subprojects WHERE "projectId" = '${pid}'))`));
+        entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT a.id FROM activities a JOIN subprojects s ON a."subprojectId" = s.id WHERE s."projectId" = '${pid}'))`));
+      } else if (filters.entityType === 'subproject') {
+        const sid = this.esc(filters.entityId);
+        entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" = '${sid}')`));
+        entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT id FROM activities WHERE "subprojectId" = '${sid}'))`));
+      } else {
+        whereClause.entityId = filters.entityId;
+        whereClause.entityType = filters.entityType;
+      }
     } else if (filters.entityId) {
       whereClause.entityId = filters.entityId;
     }
@@ -588,6 +605,10 @@ class KpiCalculationService {
       ands.push(...this.buildDataFilterLiterals(filters.dataFilters));
     }
 
+    if (entityScopeOr.length) {
+      ands.push({ [Op.or]: entityScopeOr });
+    }
+
     if (extraAnd.length || ands.length) {
       (whereClause as any)[Op.and] = [ ...(((whereClause as any)[Op.and] as any[]) || []), ...ands, ...extraAnd ];
     }
@@ -610,19 +631,34 @@ class KpiCalculationService {
       whereClause.deliveredAt = { [Op.lte]: filters.toDate };
     }
 
-    // Entity filters
-    if (filters.entityId && filters.entityType) {
-      whereClause.entityId = filters.entityId;
-      whereClause.entityType = filters.entityType;
-    } else if (filters.projectId) {
-      whereClause.entityId = filters.projectId;
-      whereClause.entityType = 'project';
+    // Entity filters with hierarchical expansion
+    const entityScopeOr: any[] = [];
+    if (filters.projectId) {
+      const pid = this.esc(filters.projectId);
+      entityScopeOr.push(literal(`("entityType" = 'project' AND "entityId" = '${pid}')`));
+      entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (SELECT id FROM subprojects WHERE "projectId" = '${pid}'))`));
+      entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT a.id FROM activities a JOIN subprojects s ON a."subprojectId" = s.id WHERE s."projectId" = '${pid}'))`));
     } else if (filters.subprojectId) {
-      whereClause.entityId = filters.subprojectId;
-      whereClause.entityType = 'subproject';
+      const sid = this.esc(filters.subprojectId);
+      entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" = '${sid}')`));
+      entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT id FROM activities WHERE "subprojectId" = '${sid}'))`));
     } else if (filters.activityId) {
       whereClause.entityId = filters.activityId;
       whereClause.entityType = 'activity';
+    } else if (filters.entityId && filters.entityType) {
+      if (filters.entityType === 'project') {
+        const pid = this.esc(filters.entityId);
+        entityScopeOr.push(literal(`("entityType" = 'project' AND "entityId" = '${pid}')`));
+        entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (SELECT id FROM subprojects WHERE "projectId" = '${pid}'))`));
+        entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT a.id FROM activities a JOIN subprojects s ON a."subprojectId" = s.id WHERE s."projectId" = '${pid}'))`));
+      } else if (filters.entityType === 'subproject') {
+        const sid = this.esc(filters.entityId);
+        entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" = '${sid}')`));
+        entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT id FROM activities WHERE "subprojectId" = '${sid}'))`));
+      } else {
+        whereClause.entityId = filters.entityId;
+        whereClause.entityType = filters.entityType;
+      }
     } else if (filters.entityId) {
       whereClause.entityId = filters.entityId;
     }
@@ -641,6 +677,10 @@ class KpiCalculationService {
     if (filters.formTemplateIds && filters.formTemplateIds.length) {
       const list = filters.formTemplateIds.map(id => `'${this.esc(id)}'`).join(',');
       ands.push(literal(`"formResponseId" IN (SELECT id FROM form_responses WHERE "formTemplateId" IN (${list}))`));
+    }
+
+    if (entityScopeOr.length) {
+      ands.push({ [Op.or]: entityScopeOr });
     }
 
     if (extraAnd.length || ands.length) {
