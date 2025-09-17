@@ -63,6 +63,13 @@ class KpiCalculationService {
       whereClause.formTemplateId = { [Op.in]: filters.formTemplateIds };
     }
 
+    // Submitted-by filters
+    if (filters.userId) {
+      (whereClause as any).submittedBy = filters.userId;
+    } else if (filters.userIds && filters.userIds.length) {
+      (whereClause as any).submittedBy = { [Op.in]: filters.userIds };
+    }
+
     // Service filters: constrain to FormResponses that have ServiceDeliveries for given service(s)
     // Use a subquery to avoid needing a join in COUNT/SUM style queries
     const serviceFilterLiterals: any[] = [];
@@ -590,6 +597,9 @@ class KpiCalculationService {
     if (filters.beneficiaryIds && filters.beneficiaryIds.length) whereClause.beneficiaryId = { [Op.in]: filters.beneficiaryIds };
     if (filters.formTemplateId) whereClause.formTemplateId = filters.formTemplateId;
     if (filters.formTemplateIds && filters.formTemplateIds.length) whereClause.formTemplateId = { [Op.in]: filters.formTemplateIds };
+    // Submitted-by filters
+    if (filters.userId) whereClause.submittedBy = filters.userId;
+    if (filters.userIds && filters.userIds.length) whereClause.submittedBy = { [Op.in]: filters.userIds };
 
     // Optional ad-hoc data filters
     const ands: any[] = [];
@@ -851,7 +861,7 @@ class KpiCalculationService {
       count: Number((r as any).get?.('count') ?? (r as any).dataValues?.count ?? 0),
     }));
   }
-}
+  }
 
 // Define interfaces for the service
 export interface KpiFilterOptions {
@@ -869,6 +879,9 @@ export interface KpiFilterOptions {
   serviceIds?: string[];
   formTemplateId?: string;
   formTemplateIds?: string[];
+  // Submitted-by filtering for form responses
+  userId?: string;
+  userIds?: string[];
 }
 
 export interface KpiResult {

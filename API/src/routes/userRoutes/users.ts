@@ -36,7 +36,6 @@ router.use(loggerMiddleware);
  */
 router.get('/', 
   authenticate, 
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]), 
   (req: Request, res: Response): void => {
     usersController.getAllUsers(req, res);
   }
@@ -76,7 +75,6 @@ router.get('/',
  */
 router.get('/:id', 
   authenticate, 
-  authorize(['System Administrator', 'Program Manager']), 
   (req: Request, res: Response): void => {
     usersController.getUserById(req, res);
   }
@@ -113,7 +111,6 @@ router.get('/:id',
 router.get(
   '/:id/projects',
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     usersController.getUserProjectsWithSubprojects(req, res);
   }
@@ -274,7 +271,7 @@ router.put('/me',
  */
 router.put('/:id', 
   authenticate, 
-  authorize(['System Administrator']), 
+  // authorize(['System Administrator']), 
   (req: Request, res: Response): void => {
     usersController.updateUser(req, res);
   }
@@ -310,7 +307,7 @@ router.put('/:id',
  */
 router.delete('/:id', 
   authenticate, 
-  authorize(['System Administrator']), 
+  // authorize(['System Administrator']), 
   (req: Request, res: Response): void => {
     usersController.deleteUser(req, res);
   }
@@ -355,7 +352,7 @@ router.delete('/:id',
  */
 router.post('/:id/reset-password', 
   authenticate, 
-  authorize(['System Administrator']), 
+  // authorize(['System Administrator']), 
   (req: Request, res: Response): void => {
     usersController.resetPassword(req, res);
   }
@@ -431,7 +428,7 @@ router.post('/:id/reset-password',
  */
 router.post('/invite', 
   authenticate, 
-  authorize(['System Administrator']), 
+  // authorize(['System Administrator']), 
   (req: Request, res: Response): void => {
     usersController.inviteUser(req, res);
   }

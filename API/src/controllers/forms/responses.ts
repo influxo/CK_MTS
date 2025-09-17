@@ -3,12 +3,31 @@ import { FormTemplate, FormResponse, User, AuditLog, Beneficiary, ServiceAssignm
 import FormEntityAssociation from "../../models/FormEntityAssociation";
 import { v4 as uuidv4 } from "uuid";
 import { createLogger } from "../../utils/logger";
-import { Op } from "sequelize";
+import { Op, literal } from "sequelize";
 import sequelize from "../../db/connection";
 import validateFormResponse from "../../services/forms/validateFormResponse";
+import { ROLES } from "../../constants/roles";
 
 // Create a logger instance for this module
 const logger = createLogger('forms-responses-controller');
+
+// Helper: get current user's role names. If not preloaded by middleware, load from DB.
+const getUserRoleNames = async (req: Request): Promise<string[]> => {
+  const cached = (req as any).userRoles as any[] | undefined;
+  if (Array.isArray(cached) && cached.length) {
+    return cached.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
+  }
+  if (!req.user) return [];
+  try {
+    const u = await User.findByPk(req.user.id, {
+      include: [{ association: 'roles' }]
+    }) as any;
+    const roles = (u?.roles || []) as any[];
+    return roles.map((r: any) => r?.name).filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+};
 
 /**
  * Submit a form response
@@ -306,36 +325,35 @@ export const getFormResponses = async (req: Request, res: Response) => {
         });
       }
       
-      // Verify user has access to this entity if req.user.allowedProgramIds exists
-      if (req.user && req.user.allowedProgramIds && 
-          !req.user.allowedProgramIds.includes(entityId as string)) {
-        logger.warn('User does not have access to entity', { 
-          userId: req.user.id, 
-          entityId 
-        });
-        return res.status(403).json({
-          success: false,
-          message: "You do not have access to this entity"
-        });
-      }
-    } else {
-      // If no specific entity is requested, verify user has access to at least one of the associated entities
-      if (req.user && req.user.allowedProgramIds && template.entityAssociations) {
-        const hasAccess = template.entityAssociations.some(ea => 
-          req.user.allowedProgramIds!.includes(ea.entityId)
-        );
-        
-        if (!hasAccess) {
-          logger.warn('User does not have access to any entities associated with this template', { 
-            userId: req.user.id, 
-            templateId: id 
-          });
-          return res.status(403).json({
-            success: false,
-            message: "You do not have access to any entities associated with this form template"
-          });
+      // Verify user has access to this entity if req.user.allowedProgramIds exists (map subproject/activity to parent project)
+      // Admins bypass this check
+      const roleNamesPre = await getUserRoleNames(req);
+      const isAdminPre = roleNamesPre.includes(ROLES.SUPER_ADMIN) || roleNamesPre.includes(ROLES.SYSTEM_ADMINISTRATOR);
+      if (!isAdminPre && req.user && Array.isArray(req.user.allowedProgramIds) && req.user.allowedProgramIds.length > 0) {
+        const allowed = new Set<string>((req.user.allowedProgramIds as any).map(String));
+        const et = String(entityType);
+        const eid = String(entityId);
+        let projectIdToCheck: string | null = null;
+        if (et === 'project') {
+          projectIdToCheck = eid;
+        } else if (et === 'subproject') {
+          const sub = await Subproject.findByPk(eid, { attributes: ['projectId'] });
+          projectIdToCheck = sub ? String(sub.get('projectId')) : null;
+        } else if (et === 'activity') {
+          const act = await Activity.findByPk(eid, { attributes: ['subprojectId'] });
+          const subId = act ? String(act.get('subprojectId')) : null;
+          if (subId) {
+            const sub = await Subproject.findByPk(subId, { attributes: ['projectId'] });
+            projectIdToCheck = sub ? String(sub.get('projectId')) : null;
+          }
+        }
+        if (!projectIdToCheck || !allowed.has(projectIdToCheck)) {
+          logger.warn('User does not have access to entity', { userId: req.user.id, entityId: eid, entityType: et, projectIdToCheck });
+          return res.status(403).json({ success: false, message: 'You do not have access to this entity' });
         }
       }
+    } else {
+      // If no specific entity is requested, skip early reject and rely on RBAC filters below
     }
     
     // Build where clause based on filters
@@ -360,6 +378,46 @@ export const getFormResponses = async (req: Request, res: Response) => {
       whereClause.submittedAt = {
         [Op.lte]: toDate
       };
+    }
+
+    // Optional additional filters
+    const beneficiaryId = (req.query.beneficiaryId as string) || undefined;
+    const beneficiaryIds = req.query.beneficiaryIds ? String(req.query.beneficiaryIds).split(',').filter(Boolean) : undefined;
+    const serviceId = (req.query.serviceId as string) || undefined;
+    const serviceIds = req.query.serviceIds ? String(req.query.serviceIds).split(',').filter(Boolean) : undefined;
+
+    if (beneficiaryId) whereClause.beneficiaryId = beneficiaryId;
+    if (beneficiaryIds && beneficiaryIds.length) whereClause.beneficiaryId = { [Op.in]: beneficiaryIds };
+
+    const ands: any[] = [];
+    // RBAC visibility rules
+    const roleNames = await getUserRoleNames(req);
+    const isAdmin = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    const isManager = roleNames.includes(ROLES.PROGRAM_MANAGER) || roleNames.includes(ROLES.SUB_PROJECT_MANAGER);
+    const allowed = (req.user && Array.isArray((req.user as any).allowedProgramIds)) ? ((req.user as any).allowedProgramIds as string[]) : [];
+    if (isAdmin) {
+      // no additional constraints
+    } else if (isManager && allowed.length) {
+      const esc = (v: string) => String(v).replace(/'/g, "''");
+      const list = allowed.map(id => `'${esc(id)}'`).join(',');
+      const scopeOr: any[] = [];
+      scopeOr.push(literal(`("entityType" = 'project' AND "entityId" IN (${list}))`));
+      scopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (SELECT id FROM subprojects WHERE "projectId" IN (${list})))`));
+      scopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT a.id FROM activities a JOIN subprojects s ON a."subprojectId" = s.id WHERE s."projectId" IN (${list})))`));
+      ands.push({ [Op.or]: scopeOr });
+    } else {
+      // Field Operator or other roles: only own submissions
+      (whereClause as any).submittedBy = req.user.id;
+    }
+    if (serviceId) {
+      ands.push(literal(`id IN (SELECT "formResponseId" FROM service_deliveries WHERE "serviceId" = '${String(serviceId).replace(/'/g, "''")}')`));
+    }
+    if (serviceIds && serviceIds.length) {
+      const list = serviceIds.map(id => `'${String(id).replace(/'/g, "''")}'`).join(',');
+      ands.push(literal(`id IN (SELECT "formResponseId" FROM service_deliveries WHERE "serviceId" IN (${list}))`));
+    }
+    if (ands.length) {
+      (whereClause as any)[Op.and] = [ ...(((whereClause as any)[Op.and] as any[]) || []), ...ands ];
     }
     
     // Get paginated responses and total count
@@ -459,10 +517,29 @@ export const getResponsesByEntity = async (req: Request, res: Response) => {
 
     logger.info('Getting form responses by entity', { entityId, entityType, templateId, page, limit });
 
-    // Access control: verify user can access the entity
-    if (req.user && req.user.allowedProgramIds && !req.user.allowedProgramIds.includes(entityId)) {
-      logger.warn('User does not have access to entity', { userId: req.user.id, entityId });
-      return res.status(403).json({ success: false, message: 'You do not have access to this entity' });
+    // Access control: verify user can access the entity (map to parent project). Admins bypass.
+    const roleNamesPre = await getUserRoleNames(req);
+    const isAdminPre = roleNamesPre.includes(ROLES.SUPER_ADMIN) || roleNamesPre.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    if (!isAdminPre && req.user && Array.isArray(req.user.allowedProgramIds) && req.user.allowedProgramIds.length > 0) {
+      const allowed = new Set<string>((req.user.allowedProgramIds as any).map(String));
+      let projectIdForAuth: string | null = null;
+      if (entityType === 'project') {
+        projectIdForAuth = entityId;
+      } else if (entityType === 'subproject') {
+        const sub = await Subproject.findByPk(entityId, { attributes: ['projectId'] });
+        projectIdForAuth = sub ? String(sub.get('projectId')) : null;
+      } else if (entityType === 'activity') {
+        const act = await Activity.findByPk(entityId, { attributes: ['subprojectId'] });
+        const subId = act ? String(act.get('subprojectId')) : null;
+        if (subId) {
+          const sub = await Subproject.findByPk(subId, { attributes: ['projectId'] });
+          projectIdForAuth = sub ? String(sub.get('projectId')) : null;
+        }
+      }
+      if (!projectIdForAuth || !allowed.has(projectIdForAuth)) {
+        logger.warn('User does not have access to entity', { userId: req.user.id, entityId, entityType, projectIdForAuth });
+        return res.status(403).json({ success: false, message: 'You do not have access to this entity' });
+      }
     }
 
     // If templateId provided, ensure template exists and is associated with the entity
@@ -481,6 +558,13 @@ export const getResponsesByEntity = async (req: Request, res: Response) => {
 
     // Build where clause
     const whereClause: any = { entityId, entityType };
+    // RBAC visibility
+    const roleNames = await getUserRoleNames(req);
+    const isAdmin = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    const isManager = roleNames.includes(ROLES.PROGRAM_MANAGER) || roleNames.includes(ROLES.SUB_PROJECT_MANAGER);
+    if (!(isAdmin || isManager)) {
+      whereClause.submittedBy = req.user.id;
+    }
     if (templateId) whereClause.formTemplateId = templateId;
     if (fromDate && toDate) {
       whereClause.submittedAt = { [Op.between]: [fromDate, toDate] };
@@ -488,6 +572,27 @@ export const getResponsesByEntity = async (req: Request, res: Response) => {
       whereClause.submittedAt = { [Op.gte]: fromDate };
     } else if (toDate) {
       whereClause.submittedAt = { [Op.lte]: toDate };
+    }
+
+    // Optional additional filters
+    const beneficiaryId = (req.query.beneficiaryId as string) || undefined;
+    const beneficiaryIds = req.query.beneficiaryIds ? String(req.query.beneficiaryIds).split(',').filter(Boolean) : undefined;
+    const serviceId = (req.query.serviceId as string) || undefined;
+    const serviceIds = req.query.serviceIds ? String(req.query.serviceIds).split(',').filter(Boolean) : undefined;
+
+    if (beneficiaryId) whereClause.beneficiaryId = beneficiaryId;
+    if (beneficiaryIds && beneficiaryIds.length) whereClause.beneficiaryId = { [Op.in]: beneficiaryIds };
+
+    const ands: any[] = [];
+    if (serviceId) {
+      ands.push(literal(`id IN (SELECT "formResponseId" FROM service_deliveries WHERE "serviceId" = '${String(serviceId).replace(/'/g, "''")}')`));
+    }
+    if (serviceIds && serviceIds.length) {
+      const list = serviceIds.map(id => `'${String(id).replace(/'/g, "''")}'`).join(',');
+      ands.push(literal(`id IN (SELECT "formResponseId" FROM service_deliveries WHERE "serviceId" IN (${list}))`));
+    }
+    if (ands.length) {
+      (whereClause as any)[Op.and] = [ ...(((whereClause as any)[Op.and] as any[]) || []), ...ands ];
     }
 
     const [responses, totalCount] = await Promise.all([
@@ -541,7 +646,7 @@ export const getAllResponses = async (req: Request, res: Response) => {
     const fromDate = req.query.fromDate ? new Date(req.query.fromDate as string) : null;
     const toDate = req.query.toDate ? new Date(req.query.toDate as string) : null;
 
-    // Access control: if user has allowedProgramIds, restrict by those
+    // Base where clause
     const whereClause: any = {};
     if (templateId) whereClause.formTemplateId = templateId;
     if (entityId) whereClause.entityId = entityId;
@@ -554,20 +659,85 @@ export const getAllResponses = async (req: Request, res: Response) => {
       whereClause.submittedAt = { [Op.lte]: toDate };
     }
 
-    // If RBAC restricts to allowedProgramIds, filter by entity/project-level ids when applicable
-    if (req.user && Array.isArray(req.user.allowedProgramIds) && req.user.allowedProgramIds.length > 0) {
-      const allowed = req.user.allowedProgramIds as string[];
-      // EntityId corresponds to project/subproject/activity IDs depending on entityType saved on response
-      // We restrict by entityId being in allowed set when entityType='project'. For subproject/activity we allow all,
-      // or we could further resolve hierarchy; keeping simple to avoid heavy joins.
-      if (!entityId) {
-        whereClause[Op.or] = [
-          { entityType: 'project', entityId: { [Op.in]: allowed } },
-          { entityType: 'subproject' },
-          { entityType: 'activity' },
-        ];
+    // Additional optional filters
+    const formTemplateIds = req.query.formTemplateIds ? String(req.query.formTemplateIds).split(',').filter(Boolean) : undefined;
+    const beneficiaryId = (req.query.beneficiaryId as string) || undefined;
+    const beneficiaryIds = req.query.beneficiaryIds ? String(req.query.beneficiaryIds).split(',').filter(Boolean) : undefined;
+    const serviceId = (req.query.serviceId as string) || undefined;
+    const serviceIds = req.query.serviceIds ? String(req.query.serviceIds).split(',').filter(Boolean) : undefined;
+    const projectId = (req.query.projectId as string) || undefined;
+    const subprojectId = (req.query.subprojectId as string) || undefined;
+    const activityId = (req.query.activityId as string) || undefined;
+    const userIdFilter = (req.query.userId as string) || undefined;
+    const userIdsFilter = req.query.userIds ? String(req.query.userIds).split(',').filter(Boolean) : undefined;
+
+    if (formTemplateIds && formTemplateIds.length) whereClause.formTemplateId = { [Op.in]: formTemplateIds };
+    if (beneficiaryId) whereClause.beneficiaryId = beneficiaryId;
+    if (beneficiaryIds && beneficiaryIds.length) whereClause.beneficiaryId = { [Op.in]: beneficiaryIds };
+
+    const ands: any[] = [];
+
+    // Service subquery filters
+    if (serviceId) {
+      ands.push(literal(`id IN (SELECT "formResponseId" FROM service_deliveries WHERE "serviceId" = '${String(serviceId).replace(/'/g, "''")}')`));
+    }
+    if (serviceIds && serviceIds.length) {
+      const list = serviceIds.map(id => `'${String(id).replace(/'/g, "''")}'`).join(',');
+      ands.push(literal(`id IN (SELECT "formResponseId" FROM service_deliveries WHERE "serviceId" IN (${list}))`));
+    }
+
+    // Hierarchical entity expansion similar to KPI service (explicit query filters)
+    const entityScopeOr: any[] = [];
+    if (projectId) {
+      const pid = String(projectId).replace(/'/g, "''");
+      entityScopeOr.push(literal(`("entityType" = 'project' AND "entityId" = '${pid}')`));
+      entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (SELECT id FROM subprojects WHERE "projectId" = '${pid}'))`));
+      entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT a.id FROM activities a JOIN subprojects s ON a."subprojectId" = s.id WHERE s."projectId" = '${pid}'))`));
+    } else if (subprojectId) {
+      const sid = String(subprojectId).replace(/'/g, "''");
+      entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" = '${sid}')`));
+      entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT id FROM activities WHERE "subprojectId" = '${sid}'))`));
+    } else if (activityId) {
+      whereClause.entityId = activityId;
+      whereClause.entityType = 'activity';
+    }
+    if (entityScopeOr.length) {
+      ands.push({ [Op.or]: entityScopeOr });
+    }
+
+    // RBAC visibility rules
+    const roleNames = await getUserRoleNames(req);
+    const isAdmin = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    const isManager = roleNames.includes(ROLES.PROGRAM_MANAGER) || roleNames.includes(ROLES.SUB_PROJECT_MANAGER);
+    const allowed = (req.user && Array.isArray((req.user as any).allowedProgramIds)) ? ((req.user as any).allowedProgramIds as string[]) : [];
+    if (isAdmin) {
+      // no additional constraints
+    } else if (isManager && allowed.length) {
+      const esc = (v: string) => String(v).replace(/'/g, "''");
+      const list = allowed.map(id => `'${esc(id)}'`).join(',');
+      const rbacOr: any[] = [];
+      rbacOr.push(literal(`("entityType" = 'project' AND "entityId" IN (${list}))`));
+      rbacOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (SELECT id FROM subprojects WHERE "projectId" IN (${list})))`));
+      rbacOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT a.id FROM activities a JOIN subprojects s ON a."subprojectId" = s.id WHERE s."projectId" IN (${list})))`));
+      ands.push({ [Op.or]: rbacOr });
+    } else {
+      (whereClause as any).submittedBy = req.user.id;
+    }
+
+    // submittedBy filters (only effective for Admins/Managers)
+    if (isAdmin || isManager) {
+      if (userIdFilter) {
+        whereClause.submittedBy = userIdFilter;
+      } else if (userIdsFilter && userIdsFilter.length) {
+        whereClause.submittedBy = { [Op.in]: userIdsFilter };
       }
     }
+
+    if (ands.length) {
+      (whereClause as any)[Op.and] = [ ...(((whereClause as any)[Op.and] as any[]) || []), ...ands ];
+    }
+
+    // Legacy allowedProgramIds fallback removed; visibility is enforced by role-based rules above
 
     const [responses, totalCount] = await Promise.all([
       FormResponse.findAll({
@@ -632,8 +802,21 @@ export const getFormResponseById = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Form response not found' });
     }
 
+    // RBAC: admins see all; managers see allowed project scope; others only own submissions
+    const roleNames = await getUserRoleNames(req);
+    const isAdmin = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    const isManager = roleNames.includes(ROLES.PROGRAM_MANAGER) || roleNames.includes(ROLES.SUB_PROJECT_MANAGER);
+    if (!isAdmin && !isManager) {
+      const submittedBy = String(response.get('submittedBy'));
+      if (submittedBy !== String(req.user.id)) {
+        return res.status(403).json({ success: false, message: 'You do not have access to this response' });
+      }
+    }
+
     // RBAC: ensure user can access the entity associated with the response
-    if (req.user && Array.isArray(req.user.allowedProgramIds) && req.user.allowedProgramIds.length > 0) {
+    const roleNamesId = await getUserRoleNames(req);
+    const isAdminId = roleNamesId.includes(ROLES.SUPER_ADMIN) || roleNamesId.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    if (!isAdminId && req.user && Array.isArray(req.user.allowedProgramIds) && req.user.allowedProgramIds.length > 0) {
       const allowed = new Set<string>(req.user.allowedProgramIds as any);
       const entityType = response.get('entityType') as 'project' | 'subproject' | 'activity';
       const entityId = String(response.get('entityId'));

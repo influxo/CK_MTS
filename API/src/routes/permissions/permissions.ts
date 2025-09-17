@@ -77,7 +77,7 @@ router.use(loggerMiddleware);
 router.get(
   '/',
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     permissionsController.list(req, res);
   }
@@ -107,7 +107,7 @@ router.get(
 router.get(
   '/:id',
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     permissionsController.getById(req, res);
   }
@@ -140,7 +140,7 @@ router.get(
 router.post(
   '/',
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     permissionsController.create(req, res);
   }
@@ -179,7 +179,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     permissionsController.update(req, res);
   }
@@ -207,7 +207,7 @@ router.put(
 router.delete(
   '/:id',
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     permissionsController.remove(req, res);
   }

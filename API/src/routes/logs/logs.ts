@@ -108,7 +108,7 @@ router.use(loggerMiddleware);
  *                         totalPages:
  *                           type: integer
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         $ref: '#/components/responses/Un// authorizedError'
  *       403:
  *         $ref: '#/components/responses/ForbiddenError'
  *       500:
@@ -116,7 +116,7 @@ router.use(loggerMiddleware);
  */
 router.get('/', 
   authenticate, 
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]), 
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]), 
   (req: Request, res: Response): void => {
     logsController.getLogs(req, res);
   }

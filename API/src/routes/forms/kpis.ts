@@ -55,14 +55,14 @@ router.use(loggerMiddleware);
  *       400:
  *         description: Invalid input
  *       401:
- *         description: Unauthorized
+ *         description: Un// authorized
  *       403:
  *         description: Forbidden - user does not have required permissions
  */
 router.post(
   "/kpis",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     formsController.kpis.createKpi(req, res);
   }
@@ -121,7 +121,7 @@ router.post(
  *       400:
  *         description: Invalid input
  *       401:
- *         description: Unauthorized
+ *         description: Un// authorized
  *       403:
  *         description: Forbidden - user does not have required permissions
  *       404:
@@ -130,7 +130,7 @@ router.post(
 router.put(
   "/kpis/:id",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     formsController.kpis.updateKpi(req, res);
   }
@@ -156,7 +156,7 @@ router.put(
  *       200:
  *         description: KPI deleted successfully
  *       401:
- *         description: Unauthorized
+ *         description: Un// authorized
  *       403:
  *         description: Forbidden - user does not have required permissions
  *       404:
@@ -165,7 +165,7 @@ router.put(
 router.delete(
   "/kpis/:id",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     formsController.kpis.deleteKpi(req, res);
   }
@@ -183,7 +183,7 @@ router.delete(
  *       200:
  *         description: List of all KPI definitions
  *       401:
- *         description: Unauthorized
+ *         description: Un// authorized
  */
 router.get(
   "/kpis",
@@ -213,7 +213,7 @@ router.get(
  *       200:
  *         description: KPI details
  *       401:
- *         description: Unauthorized
+ *         description: Un// authorized
  *       404:
  *         description: KPI not found
  */
@@ -324,7 +324,7 @@ router.get(
  *       200:
  *         description: KPI calculation result
  *       401:
- *         description: Unauthorized
+ *         description: Un// authorized
  *       404:
  *         description: KPI not found
  */
@@ -448,7 +448,7 @@ router.get(
  *       200:
  *         description: KPI time series result
  *       401:
- *         description: Unauthorized
+ *         description: Un// authorized
  *       404:
  *         description: KPI not found
  */
@@ -533,7 +533,7 @@ router.get(
  *       400:
  *         description: Invalid entity type
  *       401:
- *         description: Unauthorized
+ *         description: Un// authorized
  */
 router.get(
   "/entities/:entityType/:entityId/kpis",
@@ -555,7 +555,7 @@ router.get(
  *       200:
  *         description: List of all form fields available for KPI calculations
  *       401:
- *         description: Unauthorized
+ *         description: Un// authorized
  */
 router.get(
   "/fields",

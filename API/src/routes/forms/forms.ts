@@ -674,6 +674,7 @@ router.post(
  *     tags: [Forms]
  *     security:
  *       - bearerAuth: []
+ *     description: Returns only the responses submitted by the authenticated user. Additional filters are available.
  *     parameters:
  *       - in: path
  *         name: id
@@ -682,6 +683,77 @@ router.post(
  *           format: uuid
  *         required: true
  *         description: The form template ID
+ *       - in: query
+ *         name: entityId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Optional entity id filter
+ *       - in: query
+ *         name: entityType
+ *         schema:
+ *           type: string
+ *           enum: [project, subproject, activity]
+ *         required: false
+ *         description: Optional entity type filter
+ *       - in: query
+ *         name: beneficiaryId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter by a single beneficiaryId
+ *       - in: query
+ *         name: beneficiaryIds
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Comma-separated list of beneficiaryIds
+ *       - in: query
+ *         name: serviceId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter responses that have a delivery for the given serviceId
+ *       - in: query
+ *         name: serviceIds
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Comma-separated list of serviceIds
+ *       - in: query
+ *         name: fromDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         required: false
+ *         description: Filter responses submitted on/after this timestamp
+ *       - in: query
+ *         name: toDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         required: false
+ *         description: Filter responses submitted on/before this timestamp
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         required: false
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         required: false
+ *         description: Number of items per page
  *     responses:
  *       200:
  *         description: List of form responses
@@ -709,6 +781,7 @@ router.get(
  *     tags: [Forms]
  *     security:
  *       - bearerAuth: []
+ *     x-notes: Results are restricted to the authenticated user's own submissions.
  *     parameters:
  *       - in: query
  *         name: entityId
@@ -731,6 +804,32 @@ router.get(
  *           format: uuid
  *         required: false
  *         description: Optional filter to only include responses for a specific form template
+ *       - in: query
+ *         name: beneficiaryId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter by a single beneficiaryId
+ *       - in: query
+ *         name: beneficiaryIds
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Comma-separated list of beneficiaryIds
+ *       - in: query
+ *         name: serviceId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter responses that have a delivery for the given serviceId
+ *       - in: query
+ *         name: serviceIds
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Comma-separated list of serviceIds
  *       - in: query
  *         name: fromDate
  *         schema:
@@ -822,6 +921,7 @@ router.get(
  *     tags: [Forms]
  *     security:
  *       - bearerAuth: []
+ *     description: Role-based visibility. Field Operators see only their own submissions; Super Admin/System Administrator see all; Program/Sub-Project Managers see submissions for their associated projects (and their subprojects/activities). Supports hierarchical entity filters.
  *     parameters:
  *       - in: query
  *         name: templateId
@@ -844,6 +944,72 @@ router.get(
  *           enum: [project, subproject, activity]
  *         required: false
  *         description: Optional entity type filter
+ *       - in: query
+ *         name: formTemplateIds
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Comma-separated list of formTemplateIds
+ *       - in: query
+ *         name: userId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter by submitter userId (effective for Admins/Managers only)
+ *       - in: query
+ *         name: userIds
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Comma-separated list of submitter userIds (effective for Admins/Managers only)
+ *       - in: query
+ *         name: projectId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter responses by a project scope (includes its subprojects and activities)
+ *       - in: query
+ *         name: subprojectId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter responses by a subproject scope (includes its activities)
+ *       - in: query
+ *         name: activityId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter responses by a specific activity
+ *       - in: query
+ *         name: beneficiaryId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter by a single beneficiaryId
+ *       - in: query
+ *         name: beneficiaryIds
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Comma-separated list of beneficiaryIds
+ *       - in: query
+ *         name: serviceId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: false
+ *         description: Filter responses that have a delivery for the given serviceId
+ *       - in: query
+ *         name: serviceIds
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Comma-separated list of serviceIds
  *       - in: query
  *         name: fromDate
  *         schema:

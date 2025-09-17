@@ -19,7 +19,9 @@ const list = async (req: Request, res: Response) => {
     // Determine if caller can view decrypted PII
     const roles = req.userRoles || [];
     const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
-    const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    // const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    // Relaxed policy: allow all roles to decrypt PII for now.
+    const canDecrypt = true;
     logger.info('Beneficiaries.list role evaluation', { roleNames, canDecrypt });
 
     // Always include encrypted fields from DB so we can decrypt or return as-is
@@ -131,7 +133,9 @@ const getById = async (req: Request, res: Response) => {
 
       const roles = req.userRoles || [];
       const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
-      const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+      // const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+      // Relaxed policy: allow all roles to decrypt PII for now.
+      const canDecrypt = true;
       logger.info('Beneficiaries.getById role evaluation', { id, roleNames, canDecrypt });
 
       if (canDecrypt) {
@@ -677,10 +681,12 @@ const demographics = async (req: Request, res: Response) => {
   try {
     const roles = req.userRoles || [];
     const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
-    const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
-    if (!canDecrypt) {
-      return res.status(403).json({ success: false, message: 'Forbidden' });
-    }
+    // const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    // Relaxed policy: allow all roles to decrypt PII for now.
+    const canDecrypt = true;
+    // if (!canDecrypt) {
+    //   return res.status(403).json({ success: false, message: 'Forbidden' });
+    // }
 
     const beneficiaries = await Beneficiary.findAll({
       attributes: ['dobEnc', 'genderEnc'],
@@ -1091,7 +1097,9 @@ const listByEntity = async (req: Request, res: Response) => {
     // Role-based PII handling
     const roles = req.userRoles || [];
     const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
-    const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    // const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    // Relaxed policy: allow all roles to decrypt PII for now.
+    const canDecrypt = true;
 
     // Ensure output preserves page order as per pageIds
     const byId = new Map(beneficiaries.map((b: any) => [String(b.id), b]));

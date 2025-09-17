@@ -215,7 +215,7 @@ router.get("/subproject/:subprojectId", authenticate, (req: Request, res: Respon
 router.post(
   "/",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     activitiesController.createActivity(req, res);
   }
@@ -276,7 +276,7 @@ router.post(
 router.put(
   "/:id",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     activitiesController.updateActivity(req, res);
   }
@@ -315,7 +315,7 @@ router.put(
 router.delete(
   "/:id",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     activitiesController.deleteActivity(req, res);
   }
@@ -384,7 +384,7 @@ router.get(
 router.post(
   "/:activityId/users",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     assignmentsController.assignUserToActivity(req, res);
   }
@@ -418,7 +418,7 @@ router.post(
 router.delete(
   "/:activityId/users/:userId",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     assignmentsController.removeUserFromActivity(req, res);
   }

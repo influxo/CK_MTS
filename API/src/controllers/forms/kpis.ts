@@ -521,6 +521,9 @@ export const getMetricsSummary = async (req: Request, res: Response) => {
     if (req.query.formTemplateId) filters.formTemplateId = req.query.formTemplateId as string;
     if (req.query.formTemplateIds) filters.formTemplateIds = String(req.query.formTemplateIds).split(',').filter(Boolean);
 
+    // Scope summary to the authenticated user's own submissions by default
+    (filters as any).userId = req.user.id;
+
     const summary = await kpiCalculationService.calculateDynamicSummary(filters);
 
     return res.status(200).json({ success: true, data: summary });
