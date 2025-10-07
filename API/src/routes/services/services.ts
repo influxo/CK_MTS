@@ -44,19 +44,19 @@ router.use(loggerMiddleware);
 router.get(
   '/',
   authenticate,
- // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.list(req, res);
   }
 );
 router.get(
-    '/assigned',
-    authenticate,
-    // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
-    (req: Request, res: Response): void => {
-      servicesController.listAssignedForEntity(req, res);
-    }
-  );
+  '/assigned',
+  authenticate,
+  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  (req: Request, res: Response): void => {
+    servicesController.listAssignedForEntity(req, res);
+  }
+);
 
 /**
  * @swagger
@@ -323,6 +323,15 @@ router.post(
  * /services/metrics/deliveries/count:
  *   get:
  *     summary: Total count of service deliveries
+ *     description: |
+ *       Returns total count of service deliveries with automatic role-based filtering.
+ *       
+ *       **Automatic Role-Based Filtering:**
+ *       - **SuperAdmin & System Administrator**: See all data
+ *       - **Program Manager**: See only their assigned projects
+ *       - **Sub-Project Manager**: See only their assigned subprojects
+ *       - **Field Operator**: See only their own submissions (filtered by staffUserId)
+ *       - **Override**: Use entityId/entityIds parameters to explicitly filter
  *     tags: [Services]
  *     security:
  *       - bearerAuth: []
@@ -342,6 +351,9 @@ router.post(
  *       - in: query
  *         name: entityId
  *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
  *       - in: query
  *         name: entityType
  *         schema: { type: string, enum: [project, subproject, activity] }
@@ -395,6 +407,9 @@ router.get(
  *         name: entityId
  *         schema: { type: string, format: uuid }
  *       - in: query
+ *         name: entityIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
+ *       - in: query
  *         name: entityType
  *         schema: { type: string, enum: [project, subproject, activity] }
  *       - in: query
@@ -447,6 +462,9 @@ router.get(
  *         name: entityId
  *         schema: { type: string, format: uuid }
  *       - in: query
+ *         name: entityIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
+ *       - in: query
  *         name: entityType
  *         schema: { type: string, enum: [project, subproject, activity] }
  *       - in: query
@@ -495,6 +513,9 @@ router.get(
  *       - in: query
  *         name: entityId
  *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
  *       - in: query
  *         name: entityType
  *         schema: { type: string, enum: [project, subproject, activity] }
@@ -551,6 +572,9 @@ router.get(
  *         name: entityId
  *         schema: { type: string, format: uuid }
  *       - in: query
+ *         name: entityIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
+ *       - in: query
  *         name: entityType
  *         schema: { type: string, enum: [project, subproject, activity] }
  *       - in: query
@@ -586,6 +610,15 @@ router.get(
  * /services/metrics/deliveries/series:
  *   get:
  *     summary: Time series of service deliveries, optionally grouped by a dimension
+ *     description: |
+ *       Returns service delivery metrics over time with automatic role-based filtering.
+ *       
+ *       **Automatic Role-Based Filtering:**
+ *       - **SuperAdmin & System Administrator**: See all data
+ *       - **Program Manager**: See only their assigned projects
+ *       - **Sub-Project Manager**: See only their assigned subprojects
+ *       - **Field Operator**: See only their own submissions (filtered by staffUserId)
+ *       - **Override**: Use entityId/entityIds parameters to explicitly filter
  *     tags: [Services]
  *     security:
  *       - bearerAuth: []
@@ -613,6 +646,9 @@ router.get(
  *       - in: query
  *         name: entityId
  *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
  *       - in: query
  *         name: entityType
  *         schema: { type: string, enum: [project, subproject, activity] }
@@ -649,6 +685,15 @@ router.get(
  * /services/metrics/deliveries/summary:
  *   get:
  *     summary: Summary of service deliveries (totals and uniques)
+ *     description: |
+ *       Returns summary statistics for service deliveries with automatic role-based filtering.
+ *       
+ *       **Automatic Role-Based Filtering:**
+ *       - **SuperAdmin & System Administrator**: See all data
+ *       - **Program Manager**: See only their assigned projects
+ *       - **Sub-Project Manager**: See only their assigned subprojects
+ *       - **Field Operator**: See only their own submissions (filtered by staffUserId)
+ *       - **Override**: Use entityId/entityIds parameters to explicitly filter
  *     tags: [Services]
  *     security:
  *       - bearerAuth: []
@@ -668,6 +713,9 @@ router.get(
  *       - in: query
  *         name: entityId
  *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: entityIds
+ *         schema: { type: string, description: Comma-separated UUIDs }
  *       - in: query
  *         name: entityType
  *         schema: { type: string, enum: [project, subproject, activity] }

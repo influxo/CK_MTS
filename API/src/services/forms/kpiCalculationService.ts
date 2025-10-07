@@ -14,6 +14,7 @@ class KpiCalculationService {
    */
   private buildBaseWhereClause(filters: KpiFilterOptions, kpiCriteria?: object): any {
     const whereClause: any = {};
+    logger.info('Building WHERE clause', { filters: JSON.stringify(filters) });
 
     // Date filters
     if (filters.fromDate && filters.toDate) {
@@ -34,6 +35,7 @@ class KpiCalculationService {
       whereClause.entityId = filters.entityId;
     }
 
+    // Support for singular entity filters
     if (filters.projectId) {
       whereClause.entityId = filters.projectId;
       whereClause.entityType = 'project';
@@ -45,6 +47,39 @@ class KpiCalculationService {
     if (filters.activityId) {
       whereClause.entityId = filters.activityId;
       whereClause.entityType = 'activity';
+    }
+
+    // Support for multiple entity IDs (role-based filtering)
+    // Note: Empty arrays mean "no access" - return no results
+    if ((filters as any).projectIds !== undefined) {
+      if ((filters as any).projectIds.length > 0) {
+        whereClause.entityId = { [Op.in]: (filters as any).projectIds };
+        whereClause.entityType = 'project';
+      } else {
+        // Empty array = no access, return no results
+        whereClause.entityId = { [Op.in]: [] };
+        whereClause.entityType = 'project';
+      }
+    }
+    if ((filters as any).subprojectIds !== undefined) {
+      if ((filters as any).subprojectIds.length > 0) {
+        whereClause.entityId = { [Op.in]: (filters as any).subprojectIds };
+        whereClause.entityType = 'subproject';
+      } else {
+        // Empty array = no access, return no results
+        whereClause.entityId = { [Op.in]: [] };
+        whereClause.entityType = 'subproject';
+      }
+    }
+    if ((filters as any).activityIds !== undefined) {
+      if ((filters as any).activityIds.length > 0) {
+        whereClause.entityId = { [Op.in]: (filters as any).activityIds };
+        whereClause.entityType = 'activity';
+      } else {
+        // Empty array = no access, return no results
+        whereClause.entityId = { [Op.in]: [] };
+        whereClause.entityType = 'activity';
+      }
     }
 
     // Beneficiary filters (static Beneficiary model is referenced via FormResponse.beneficiaryId)
@@ -106,6 +141,7 @@ class KpiCalculationService {
       ];
     }
 
+    logger.info('Built WHERE clause', { whereClause: JSON.stringify(whereClause) });
     return whereClause;
   }
 
@@ -207,19 +243,19 @@ class KpiCalculationService {
       }
       // Build the where clause based on filters + KPI criteria
       const whereClause: any = this.buildBaseWhereClause(filters, kpi.filterCriteria || undefined);
-      
+
       // Get the field name to calculate on
       const field = await FormField.findByPk(kpi.fieldId);
-      
+
       if (!field || !field.name) {
         throw new Error('Field not found for KPI calculation');
       }
-      
+
       const fieldName = field.name;
 
       // Perform the calculation based on the KPI type
       let result: number;
-      
+
       switch (kpi.calculationType) {
         case 'COUNT': {
           // Count responses where the field exists and is not empty
@@ -235,7 +271,7 @@ class KpiCalculationService {
           result = count;
           break;
         }
-          
+
         case 'SUM': {
           // Sum only numeric values for the field
           const rows = await FormResponse.findAll({
@@ -254,7 +290,7 @@ class KpiCalculationService {
           result = Number(rows[0]?.total ?? 0);
           break;
         }
-          
+
         case 'AVERAGE': {
           // Average of numeric values only
           const rows = await FormResponse.findAll({
@@ -273,7 +309,7 @@ class KpiCalculationService {
           result = Number(rows[0]?.average ?? 0);
           break;
         }
-          
+
         case 'MIN': {
           // Minimum numeric value
           const rows = await FormResponse.findAll({
@@ -292,7 +328,7 @@ class KpiCalculationService {
           result = Number(rows[0]?.min ?? 0);
           break;
         }
-          
+
         case 'MAX': {
           // Maximum numeric value
           const rows = await FormResponse.findAll({
@@ -311,7 +347,7 @@ class KpiCalculationService {
           result = Number(rows[0]?.max ?? 0);
           break;
         }
-          
+
         case 'PERCENTAGE': {
           // Percentage of responses where the field equals expectedValue (default 'true')
           const totalCount = await FormResponse.count({ where: whereClause });
@@ -332,18 +368,18 @@ class KpiCalculationService {
           }
           break;
         }
-          
+
         case 'CUSTOM':
           // For custom calculations, we'll need to implement specific logic
           // based on the KPI definition
           logger.error(`Custom KPI calculations not yet implemented for KPI ${kpiId}`);
           throw new Error('Custom KPI calculations not yet implemented');
-          
+
         default:
           logger.error(`Unknown calculation type: ${kpi.calculationType}`);
           throw new Error(`Unknown calculation type: ${kpi.calculationType}`);
       }
-      
+
       // Return the KPI result with metadata
       return {
         kpiId: kpi.id,
@@ -355,7 +391,7 @@ class KpiCalculationService {
         aggregationType: kpi.aggregationType,
         timestamp: new Date()
       };
-      
+
     } catch (error: any) {
       logger.error(`Error calculating KPI ${kpiId}: ${error.message}`);
       throw new Error(`Error calculating KPI: ${error.message}`);
@@ -460,31 +496,31 @@ class KpiCalculationService {
           as: 'field',
         }]
       });
-      
+
       // Calculate each KPI
       const results = await Promise.all(
-        kpis.map(kpi => 
-          this.calculateKpi(kpi.id, { 
-            ...filters, 
-            entityId, 
-            entityType 
+        kpis.map(kpi =>
+          this.calculateKpi(kpi.id, {
+            ...filters,
+            entityId,
+            entityType
           })
-          .catch(err => {
-            logger.error(`Error calculating KPI ${kpi.id}: ${err.message}`);
-            return null;
-          })
+            .catch(err => {
+              logger.error(`Error calculating KPI ${kpi.id}: ${err.message}`);
+              return null;
+            })
         )
       );
-      
+
       // Filter out any failed calculations
       return results.filter(result => result !== null) as KpiResult[];
-      
+
     } catch (error: any) {
       logger.error(`Error calculating KPIs for entity ${entityId}: ${error.message}`);
       throw new Error(`Error calculating KPIs: ${error.message}`);
     }
   }
-  
+
   /**
    * Register new form fields from a form template schema
    */
@@ -494,21 +530,21 @@ class KpiCalculationService {
         logger.warn('Invalid schema structure, cannot register form fields');
         return;
       }
-      
+
       const fields = template.schema.fields;
-      
+
       // Process each field in the schema
       for (const field of fields) {
         if (!field.name || !field.type) {
           logger.warn('Field missing name or type, skipping', field);
           continue;
         }
-        
+
         // Check if this field already exists
         const existingField = await FormField.findOne({
           where: { name: field.name }
         });
-        
+
         if (!existingField) {
           // Create a new field entry
           await FormField.create({
@@ -518,7 +554,7 @@ class KpiCalculationService {
             description: field.label || `Field ${field.name}`,
             isKpiField: field.type === 'number' || field.type === 'boolean' || field.type === 'select',
           });
-          
+
           logger.info(`Registered new form field: ${field.name} (${field.type})`);
         }
       }
@@ -527,7 +563,7 @@ class KpiCalculationService {
       throw new Error(`Error registering form fields: ${error.message}`);
     }
   }
-  
+
   /**
    * Get all available fields that can be used for KPIs
    */
@@ -560,7 +596,39 @@ class KpiCalculationService {
 
     // Entity filters with hierarchical expansion
     const entityScopeOr: any[] = [];
-    if (filters.projectId) {
+
+    // Support for multiple project IDs (role-based filtering)
+    if ((filters as any).projectIds !== undefined) {
+      const pids = (filters as any).projectIds as string[];
+      if (pids.length > 0) {
+        const pidList = pids.map(id => `'${this.esc(id)}'`).join(',');
+        entityScopeOr.push(literal(`("entityType" = 'project' AND "entityId" IN (${pidList}))`));
+        entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (SELECT id FROM subprojects WHERE "projectId" IN (${pidList})))`));
+        entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT a.id FROM activities a JOIN subprojects s ON a."subprojectId" = s.id WHERE s."projectId" IN (${pidList})))`));
+      } else {
+        // Empty array = no access
+        whereClause.entityId = { [Op.in]: [] };
+      }
+    } else if ((filters as any).subprojectIds !== undefined) {
+      const sids = (filters as any).subprojectIds as string[];
+      if (sids.length > 0) {
+        const sidList = sids.map(id => `'${this.esc(id)}'`).join(',');
+        entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (${sidList}))`));
+        entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT id FROM activities WHERE "subprojectId" IN (${sidList})))`));
+      } else {
+        // Empty array = no access
+        whereClause.entityId = { [Op.in]: [] };
+      }
+    } else if ((filters as any).activityIds !== undefined) {
+      const aids = (filters as any).activityIds as string[];
+      if (aids.length > 0) {
+        whereClause.entityId = { [Op.in]: aids };
+        whereClause.entityType = 'activity';
+      } else {
+        // Empty array = no access
+        whereClause.entityId = { [Op.in]: [] };
+      }
+    } else if (filters.projectId) {
       // Include project itself + its subprojects + activities under those subprojects
       const pid = this.esc(filters.projectId);
       entityScopeOr.push(literal(`("entityType" = 'project' AND "entityId" = '${pid}')`));
@@ -620,7 +688,7 @@ class KpiCalculationService {
     }
 
     if (extraAnd.length || ands.length) {
-      (whereClause as any)[Op.and] = [ ...(((whereClause as any)[Op.and] as any[]) || []), ...ands, ...extraAnd ];
+      (whereClause as any)[Op.and] = [...(((whereClause as any)[Op.and] as any[]) || []), ...ands, ...extraAnd];
     }
 
     return whereClause;
@@ -643,7 +711,39 @@ class KpiCalculationService {
 
     // Entity filters with hierarchical expansion
     const entityScopeOr: any[] = [];
-    if (filters.projectId) {
+
+    // Support for multiple entity IDs (role-based filtering)
+    if ((filters as any).projectIds !== undefined) {
+      const pids = (filters as any).projectIds as string[];
+      if (pids.length > 0) {
+        const pidList = pids.map(id => `'${this.esc(id)}'`).join(',');
+        entityScopeOr.push(literal(`("entityType" = 'project' AND "entityId" IN (${pidList}))`));
+        entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (SELECT id FROM subprojects WHERE "projectId" IN (${pidList})))`));
+        entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT a.id FROM activities a JOIN subprojects s ON a."subprojectId" = s.id WHERE s."projectId" IN (${pidList})))`));
+      } else {
+        // Empty array = no access
+        whereClause.entityId = { [Op.in]: [] };
+      }
+    } else if ((filters as any).subprojectIds !== undefined) {
+      const sids = (filters as any).subprojectIds as string[];
+      if (sids.length > 0) {
+        const sidList = sids.map(id => `'${this.esc(id)}'`).join(',');
+        entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (${sidList}))`));
+        entityScopeOr.push(literal(`("entityType" = 'activity' AND "entityId" IN (SELECT id FROM activities WHERE "subprojectId" IN (${sidList})))`));
+      } else {
+        // Empty array = no access
+        whereClause.entityId = { [Op.in]: [] };
+      }
+    } else if ((filters as any).activityIds !== undefined) {
+      const aids = (filters as any).activityIds as string[];
+      if (aids.length > 0) {
+        whereClause.entityId = { [Op.in]: aids };
+        whereClause.entityType = 'activity';
+      } else {
+        // Empty array = no access
+        whereClause.entityId = { [Op.in]: [] };
+      }
+    } else if (filters.projectId) {
       const pid = this.esc(filters.projectId);
       entityScopeOr.push(literal(`("entityType" = 'project' AND "entityId" = '${pid}')`));
       entityScopeOr.push(literal(`("entityType" = 'subproject' AND "entityId" IN (SELECT id FROM subprojects WHERE "projectId" = '${pid}'))`));
@@ -694,7 +794,7 @@ class KpiCalculationService {
     }
 
     if (extraAnd.length || ands.length) {
-      (whereClause as any)[Op.and] = [ ...(((whereClause as any)[Op.and] as any[]) || []), ...ands, ...extraAnd ];
+      (whereClause as any)[Op.and] = [...(((whereClause as any)[Op.and] as any[]) || []), ...ands, ...extraAnd];
     }
 
     return whereClause;
@@ -861,7 +961,7 @@ class KpiCalculationService {
       count: Number((r as any).get?.('count') ?? (r as any).dataValues?.count ?? 0),
     }));
   }
-  }
+}
 
 // Define interfaces for the service
 export interface KpiFilterOptions {
@@ -872,6 +972,10 @@ export interface KpiFilterOptions {
   projectId?: string;
   subprojectId?: string;
   activityId?: string;
+  // Support for multiple entity IDs (role-based filtering)
+  projectIds?: string[];
+  subprojectIds?: string[];
+  activityIds?: string[];
   dataFilters?: DataFilterCondition[];
   beneficiaryId?: string;
   beneficiaryIds?: string[];

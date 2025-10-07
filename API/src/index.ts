@@ -5,7 +5,7 @@ import routes from "./routes";
 import initDatabase from "./db/init";
 import loggerMiddleware from "./middlewares/logger";
 import { swaggerUi, swaggerSpec } from "./config/swagger";
-import {seedDatabase} from "./db/seedDatabase";
+import { seedDatabase } from "./db/seedDatabase";
 
 // Load environment variables
 dotenv.config();
@@ -22,7 +22,7 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(loggerMiddleware);
 
 // Swagger documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {swaggerOptions: {persistAuthorization: true}}));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { swaggerOptions: { persistAuthorization: true } }));
 
 // Routes
 app.use('/api', routes);

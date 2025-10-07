@@ -570,6 +570,15 @@ router.get(
  * /forms/metrics/summary:
  *   get:
  *     summary: Dynamic metrics summary from responses and service deliveries (no KPI definitions required)
+ *     description: |
+ *       Returns summary statistics for form submissions with automatic role-based filtering.
+ *       
+ *       **Automatic Role-Based Filtering:**
+ *       - **SuperAdmin & System Administrator**: See all data
+ *       - **Program Manager**: See only their assigned projects
+ *       - **Sub-Project Manager**: See only their assigned subprojects
+ *       - **Field Operator**: See only their own submissions (filtered by submittedBy)
+ *       - **Override**: Use entityId/projectId/subprojectId parameters to explicitly filter
  *     tags: [Forms, KPIs]
  *     security:
  *       - bearerAuth: []
@@ -635,6 +644,15 @@ router.get(
  * /forms/metrics/series:
  *   get:
  *     summary: Dynamic metrics time series (submissions, serviceDeliveries, uniqueBeneficiaries)
+ *     description: |
+ *       Returns time series metrics for form submissions with automatic role-based filtering.
+ *       
+ *       **Automatic Role-Based Filtering:**
+ *       - **SuperAdmin & System Administrator**: See all data
+ *       - **Program Manager**: See only their assigned projects
+ *       - **Sub-Project Manager**: See only their assigned subprojects
+ *       - **Field Operator**: See only their own submissions (filtered by submittedBy)
+ *       - **Override**: Use entityId/projectId/subprojectId parameters to explicitly filter
  *     tags: [Forms, KPIs]
  *     security:
  *       - bearerAuth: []

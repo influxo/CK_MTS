@@ -2,10 +2,83 @@ import { Request, Response } from 'express';
 import sequelize from '../../db/connection';
 import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
 import { createLogger } from '../../utils/logger';
-import { AuditLog, Service, ServiceAssignment, ServiceDelivery, FormResponse } from '../../models';
+import { AuditLog, Service, ServiceAssignment, ServiceDelivery, FormResponse, User, ProjectUser, SubprojectUser } from '../../models';
 import { Op, fn, col } from 'sequelize';
+import { ROLES } from '../../constants/roles';
 
 const logger = createLogger('services-controller');
+
+/**
+ * Helper function to determine entity filtering based on user's role
+ * Returns object with entityIds array and additional filtering info
+ * 
+ * Role-based filtering:
+ * - SuperAdmin/System Administrator: null (no filtering - see all data)
+ * - Program Manager: all associated projects
+ * - Sub-Project Manager: all associated subprojects
+ * - Field Operator: filter by staffUserId (not by entities)
+ */
+interface EntityFilterResult {
+  entityIds: string[] | null;  // null means no entity filtering
+  filterByStaffUser?: boolean;  // true for Field Operators
+  staffUserId?: string;
+}
+
+const getUserEntityFilter = async (userId: string): Promise<EntityFilterResult> => {
+  try {
+    // Load user with roles
+    const userWithRoles = await User.findByPk(userId, {
+      include: [{ association: 'roles' }]
+    });
+
+    if (!userWithRoles) {
+      return { entityIds: [] };  // User not found - no access
+    }
+
+    const userRoles = (userWithRoles as any).roles || [];
+    const roleNames = userRoles.map((role: any) => role.name);
+
+    // SuperAdmin & System Administrator: See all data
+    if (roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR)) {
+      return { entityIds: null };  // No filtering
+    }
+
+    // Field Operator: Only see their own submissions
+    if (roleNames.includes(ROLES.FIELD_OPERATOR)) {
+      return {
+        entityIds: null,  // Don't filter by entity
+        filterByStaffUser: true,
+        staffUserId: userId
+      };
+    }
+
+    // Program Manager: See their assigned projects
+    if (roleNames.includes(ROLES.PROGRAM_MANAGER)) {
+      const projectUsers = await ProjectUser.findAll({
+        where: { userId },
+        attributes: ['projectId']
+      });
+      const projectIds = projectUsers.map(pu => pu.get('projectId') as string);
+      return { entityIds: projectIds };
+    }
+
+    // Sub-Project Manager: See their assigned subprojects
+    if (roleNames.includes(ROLES.SUB_PROJECT_MANAGER)) {
+      const subprojectUsers = await SubprojectUser.findAll({
+        where: { userId },
+        attributes: ['subprojectId']
+      });
+      const subprojectIds = subprojectUsers.map(su => su.get('subprojectId') as string);
+      return { entityIds: subprojectIds };
+    }
+
+    // Default: No access
+    return { entityIds: [] };
+  } catch (error: any) {
+    logger.error('Error determining user entity filter', { userId, error: error.message });
+    return { entityIds: [] };
+  }
+};
 
 const list = async (req: Request, res: Response) => {
   try {
@@ -25,24 +98,67 @@ const list = async (req: Request, res: Response) => {
   }
 };
 
-// Build dynamic filters for ServiceDelivery queries from request query parameters
-const buildDeliveryWhere = (q: any) => {
+/**
+ * Build dynamic filters for ServiceDelivery queries from request query parameters
+ * Applies automatic role-based filtering unless explicitly overridden
+ */
+const buildDeliveryWhere = async (q: any, userId?: string) => {
   const where: any = {};
+
+  // Service filtering (single or multiple)
   if (q.serviceId) where.serviceId = q.serviceId;
   if (q.serviceIds) {
     const ids = Array.isArray(q.serviceIds) ? q.serviceIds : String(q.serviceIds).split(',');
     where.serviceId = { [Op.in]: ids };
   }
-  if (q.staffUserId) where.staffUserId = q.staffUserId;
+
+  // Beneficiary filtering
   if (q.beneficiaryId) where.beneficiaryId = q.beneficiaryId;
-  if (q.entityId) where.entityId = q.entityId;
-  if (q.entityType) where.entityType = q.entityType;
+
+  // Form response filtering
   if (q.formResponseId) where.formResponseId = q.formResponseId;
+
+  // Date range filtering
   if (q.startDate || q.endDate) {
     where.deliveredAt = {};
     if (q.startDate) where.deliveredAt[Op.gte] = new Date(String(q.startDate));
     if (q.endDate) where.deliveredAt[Op.lte] = new Date(String(q.endDate));
   }
+
+  // Apply automatic role-based filtering if userId provided
+  if (userId) {
+    const userFilter = await getUserEntityFilter(userId);
+
+    // Handle Field Operator: filter by staffUserId (unless explicitly set)
+    if (userFilter.filterByStaffUser && !q.staffUserId) {
+      where.staffUserId = userFilter.staffUserId;
+    }
+
+    // Handle entity filtering
+    // Priority 1: Explicit entityId/entityIds in query (manual override)
+    if (q.entityId) {
+      where.entityId = q.entityId;
+    } else if (q.entityIds) {
+      const ids = Array.isArray(q.entityIds) ? q.entityIds : String(q.entityIds).split(',');
+      where.entityId = { [Op.in]: ids };
+    } else if (userFilter.entityIds !== null) {
+      // Priority 2: Apply role-based entity filtering
+      if (userFilter.entityIds.length > 0) {
+        where.entityId = { [Op.in]: userFilter.entityIds };
+      } else {
+        // User has no accessible entities - return no results
+        where.entityId = { [Op.in]: [] };
+      }
+    }
+    // If entityIds is null (admin/sysadmin), no entity filtering is applied
+  }
+
+  // Staff user filtering (explicit from query - overrides auto-filter)
+  if (q.staffUserId) where.staffUserId = q.staffUserId;
+
+  // Entity type filtering
+  if (q.entityType) where.entityType = q.entityType;
+
   return where;
 };
 
@@ -64,7 +180,7 @@ const buildFormTemplateInclude = (q: any, requireForGrouping: boolean = false) =
 // GET /services/metrics/deliveries/count
 const metricsDeliveriesCount = async (req: Request, res: Response) => {
   try {
-    const where = buildDeliveryWhere(req.query);
+    const where = await buildDeliveryWhere(req.query, req.user?.id);
     const include = buildFormTemplateInclude(req.query);
     const total = await ServiceDelivery.count({ where, include, distinct: true });
     return res.status(200).json({ success: true, data: { total } });
@@ -77,7 +193,7 @@ const metricsDeliveriesCount = async (req: Request, res: Response) => {
 // GET /services/metrics/deliveries/by-user
 const metricsDeliveriesByUser = async (req: Request, res: Response) => {
   try {
-    const where = buildDeliveryWhere(req.query);
+    const where = await buildDeliveryWhere(req.query, req.user?.id);
     const include = buildFormTemplateInclude(req.query);
     const rows = await ServiceDelivery.findAll({
       where,
@@ -96,7 +212,7 @@ const metricsDeliveriesByUser = async (req: Request, res: Response) => {
 // GET /services/metrics/deliveries/by-beneficiary
 const metricsDeliveriesByBeneficiary = async (req: Request, res: Response) => {
   try {
-    const where = buildDeliveryWhere(req.query);
+    const where = await buildDeliveryWhere(req.query, req.user?.id);
     const include = buildFormTemplateInclude(req.query);
     const rows = await ServiceDelivery.findAll({
       where,
@@ -115,7 +231,7 @@ const metricsDeliveriesByBeneficiary = async (req: Request, res: Response) => {
 // GET /services/metrics/deliveries/by-service
 const metricsDeliveriesByService = async (req: Request, res: Response) => {
   try {
-    const where = buildDeliveryWhere(req.query);
+    const where = await buildDeliveryWhere(req.query, req.user?.id);
     const include = buildFormTemplateInclude(req.query);
     const rows = await ServiceDelivery.findAll({
       where,
@@ -134,7 +250,7 @@ const metricsDeliveriesByService = async (req: Request, res: Response) => {
 // GET /services/metrics/deliveries/by-form-template
 const metricsDeliveriesByFormTemplate = async (req: Request, res: Response) => {
   try {
-    const where = buildDeliveryWhere(req.query);
+    const where = await buildDeliveryWhere(req.query, req.user?.id);
     // Require include for grouping on formTemplate
     const include = buildFormTemplateInclude(req.query, true);
     const rows = await ServiceDelivery.findAll({
@@ -155,7 +271,7 @@ const metricsDeliveriesByFormTemplate = async (req: Request, res: Response) => {
 // GET /services/metrics/deliveries/series
 const metricsDeliveriesSeries = async (req: Request, res: Response) => {
   try {
-    const where = buildDeliveryWhere(req.query);
+    const where = await buildDeliveryWhere(req.query, req.user?.id);
     const unitRaw = String((req.query.groupBy as string) || 'month').toLowerCase();
     const allowedUnits = new Set(['day', 'week', 'month', 'quarter', 'year']);
     const unit: 'day' | 'week' | 'month' | 'quarter' | 'year' = (allowedUnits.has(unitRaw) ? unitRaw : 'month') as any;
@@ -209,7 +325,7 @@ const metricsDeliveriesSeries = async (req: Request, res: Response) => {
 // GET /services/metrics/deliveries/summary
 const metricsDeliveriesSummary = async (req: Request, res: Response) => {
   try {
-    const where = buildDeliveryWhere(req.query);
+    const where = await buildDeliveryWhere(req.query, req.user?.id);
     const include = buildFormTemplateInclude(req.query);
     const [totalDeliveries, uniqueBeneficiaries, uniqueStaff, uniqueServices] = await Promise.all([
       ServiceDelivery.count({ where, include, distinct: true }),

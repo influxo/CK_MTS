@@ -1,19 +1,94 @@
 import { Request, Response } from "express";
-import { Kpi, FormField, AuditLog } from "../../models";
+import { Kpi, FormField, AuditLog, User, ProjectUser, SubprojectUser } from "../../models";
 import { v4 as uuidv4 } from "uuid";
 import { createLogger } from "../../utils/logger";
 import kpiCalculationService, { KpiFilterOptions } from "../../services/forms/kpiCalculationService";
 import sequelize from "../../db/connection";
+import { ROLES } from "../../constants/roles";
 
 // Create a logger instance for this module
 const logger = createLogger('forms-kpis-controller');
+
+/**
+ * Helper function to determine entity filtering based on user's role
+ * Returns object with entity filter information for role-based access
+ * 
+ * Role-based filtering:
+ * - SuperAdmin/System Administrator: null (no filtering - see all data)
+ * - Program Manager: all associated projects
+ * - Sub-Project Manager: all associated subprojects
+ * - Field Operator: filter by submittedBy (not by entities)
+ */
+interface EntityFilterResult {
+  projectIds?: string[];
+  subprojectIds?: string[];
+  activityIds?: string[];
+  filterBySubmittedBy?: boolean;
+  submittedBy?: string;
+  isAdmin?: boolean;
+}
+
+const getUserEntityFilter = async (userId: string): Promise<EntityFilterResult> => {
+  try {
+    // Load user with roles
+    const userWithRoles = await User.findByPk(userId, {
+      include: [{ association: 'roles' }]
+    });
+
+    if (!userWithRoles) {
+      return {};  // User not found - no access
+    }
+
+    const userRoles = (userWithRoles as any).roles || [];
+    const roleNames = userRoles.map((role: any) => role.name);
+
+    // SuperAdmin & System Administrator: See all data
+    if (roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR)) {
+      return { isAdmin: true };  // No filtering
+    }
+
+    // Field Operator: Only see their own submissions
+    if (roleNames.includes(ROLES.FIELD_OPERATOR)) {
+      return {
+        filterBySubmittedBy: true,
+        submittedBy: userId
+      };
+    }
+
+    // Program Manager: See their assigned projects
+    if (roleNames.includes(ROLES.PROGRAM_MANAGER)) {
+      const projectUsers = await ProjectUser.findAll({
+        where: { userId },
+        attributes: ['projectId']
+      });
+      const projectIds = projectUsers.map(pu => pu.get('projectId') as string);
+      return { projectIds };
+    }
+
+    // Sub-Project Manager: See their assigned subprojects
+    if (roleNames.includes(ROLES.SUB_PROJECT_MANAGER)) {
+      const subprojectUsers = await SubprojectUser.findAll({
+        where: { userId },
+        attributes: ['subprojectId']
+      });
+      const subprojectIds = subprojectUsers.map(su => su.get('subprojectId') as string);
+      return { subprojectIds };
+    }
+
+    // Default: No access
+    return {};
+  } catch (error: any) {
+    logger.error('Error determining user entity filter', { userId, error: error.message });
+    return {};
+  }
+};
 
 /**
  * Create a new KPI definition
  */
 export const createKpi = async (req: Request, res: Response) => {
   logger.info('Creating new KPI definition', { kpiName: req.body.name });
-  
+
   try {
     const { name, description, calculationType, fieldId, aggregationType, filterCriteria } = req.body;
 
@@ -25,7 +100,7 @@ export const createKpi = async (req: Request, res: Response) => {
         message: "Name, calculationType, fieldId, and aggregationType are required",
       });
     }
-    
+
     // Check if the field exists
     const field = await FormField.findByPk(fieldId);
     if (!field) {
@@ -35,7 +110,7 @@ export const createKpi = async (req: Request, res: Response) => {
         message: "Field not found",
       });
     }
-    
+
     // Validate calculation type
     const validCalculationTypes = ['COUNT', 'SUM', 'AVERAGE', 'MIN', 'MAX', 'PERCENTAGE', 'CUSTOM'];
     if (!validCalculationTypes.includes(calculationType)) {
@@ -45,7 +120,7 @@ export const createKpi = async (req: Request, res: Response) => {
         message: `Calculation type must be one of: ${validCalculationTypes.join(', ')}`,
       });
     }
-    
+
     // Validate aggregation type
     const validAggregationTypes = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY', 'ALL_TIME'];
     if (!validAggregationTypes.includes(aggregationType)) {
@@ -55,7 +130,7 @@ export const createKpi = async (req: Request, res: Response) => {
         message: `Aggregation type must be one of: ${validAggregationTypes.join(', ')}`,
       });
     }
-    
+
     // Create the KPI
     const kpi = await Kpi.create({
       id: uuidv4(),
@@ -67,7 +142,7 @@ export const createKpi = async (req: Request, res: Response) => {
       filterCriteria: filterCriteria || null,
       isActive: true,
     });
-    
+
     // Create audit log entry
     await AuditLog.create({
       id: uuidv4(),
@@ -82,15 +157,15 @@ export const createKpi = async (req: Request, res: Response) => {
       }),
       timestamp: new Date()
     });
-    
+
     logger.info('KPI created successfully', { kpiId: kpi.id });
-    
+
     return res.status(201).json({
       success: true,
       message: "KPI created successfully",
       data: kpi,
     });
-    
+
   } catch (error: any) {
     logger.error(`Error creating KPI: ${error.message}`, error);
     return res.status(500).json({
@@ -168,7 +243,7 @@ export const calculateKpiSeries = async (req: Request, res: Response) => {
 export const updateKpi = async (req: Request, res: Response) => {
   const { id } = req.params;
   logger.info('Updating KPI definition', { kpiId: id });
-  
+
   try {
     // Find the KPI
     const kpi = await Kpi.findByPk(id);
@@ -179,7 +254,7 @@ export const updateKpi = async (req: Request, res: Response) => {
         message: "KPI not found",
       });
     }
-    
+
     const { name, description, calculationType, fieldId, aggregationType, filterCriteria, isActive } = req.body;
 
     // Update only provided fields
@@ -198,7 +273,7 @@ export const updateKpi = async (req: Request, res: Response) => {
       }
       updateData.calculationType = calculationType;
     }
-    
+
     if (fieldId !== undefined) {
       // Check if the field exists
       const field = await FormField.findByPk(fieldId);
@@ -211,7 +286,7 @@ export const updateKpi = async (req: Request, res: Response) => {
       }
       updateData.fieldId = fieldId;
     }
-    
+
     if (aggregationType !== undefined) {
       // Validate aggregation type
       const validAggregationTypes = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY', 'ALL_TIME'];
@@ -224,13 +299,13 @@ export const updateKpi = async (req: Request, res: Response) => {
       }
       updateData.aggregationType = aggregationType;
     }
-    
+
     if (filterCriteria !== undefined) updateData.filterCriteria = filterCriteria;
     if (isActive !== undefined) updateData.isActive = isActive;
-    
+
     // Update the KPI
     await kpi.update(updateData);
-    
+
     // Create audit log entry
     await AuditLog.create({
       id: uuidv4(),
@@ -243,9 +318,9 @@ export const updateKpi = async (req: Request, res: Response) => {
       }),
       timestamp: new Date()
     });
-    
+
     logger.info('KPI updated successfully', { kpiId: id });
-    
+
     return res.status(200).json({
       success: true,
       message: "KPI updated successfully",
@@ -256,7 +331,7 @@ export const updateKpi = async (req: Request, res: Response) => {
         }]
       }),
     });
-    
+
   } catch (error: any) {
     logger.error(`Error updating KPI ${id}: ${error.message}`, error);
     return res.status(500).json({
@@ -272,7 +347,7 @@ export const updateKpi = async (req: Request, res: Response) => {
 export const deleteKpi = async (req: Request, res: Response) => {
   const { id } = req.params;
   logger.info('Deleting KPI definition', { kpiId: id });
-  
+
   try {
     // Find the KPI
     const kpi = await Kpi.findByPk(id);
@@ -283,12 +358,12 @@ export const deleteKpi = async (req: Request, res: Response) => {
         message: "KPI not found",
       });
     }
-    
+
     // Use transaction for atomicity
     await sequelize.transaction(async (transaction) => {
       // Delete the KPI
       await kpi.destroy({ transaction });
-      
+
       // Create audit log entry
       await AuditLog.create({
         id: uuidv4(),
@@ -301,14 +376,14 @@ export const deleteKpi = async (req: Request, res: Response) => {
         timestamp: new Date()
       }, { transaction });
     });
-    
+
     logger.info('KPI deleted successfully', { kpiId: id });
-    
+
     return res.status(200).json({
       success: true,
       message: "KPI deleted successfully",
     });
-    
+
   } catch (error: any) {
     logger.error(`Error deleting KPI ${id}: ${error.message}`, error);
     return res.status(500).json({
@@ -323,7 +398,7 @@ export const deleteKpi = async (req: Request, res: Response) => {
  */
 export const getAllKpis = async (req: Request, res: Response) => {
   logger.info('Getting all KPI definitions');
-  
+
   try {
     // Get all KPIs with their associated fields
     const kpis = await Kpi.findAll({
@@ -333,12 +408,12 @@ export const getAllKpis = async (req: Request, res: Response) => {
       }],
       order: [['createdAt', 'DESC']]
     });
-    
+
     return res.status(200).json({
       success: true,
       data: kpis,
     });
-    
+
   } catch (error: any) {
     logger.error(`Error getting KPIs: ${error.message}`, error);
     return res.status(500).json({
@@ -354,7 +429,7 @@ export const getAllKpis = async (req: Request, res: Response) => {
 export const getKpiById = async (req: Request, res: Response) => {
   const { id } = req.params;
   logger.info('Getting KPI definition', { kpiId: id });
-  
+
   try {
     // Find the KPI with its associated field
     const kpi = await Kpi.findByPk(id, {
@@ -363,7 +438,7 @@ export const getKpiById = async (req: Request, res: Response) => {
         as: 'field',
       }]
     });
-    
+
     if (!kpi) {
       logger.warn('KPI not found', { kpiId: id });
       return res.status(404).json({
@@ -371,12 +446,12 @@ export const getKpiById = async (req: Request, res: Response) => {
         message: "KPI not found",
       });
     }
-    
+
     return res.status(200).json({
       success: true,
       data: kpi,
     });
-    
+
   } catch (error: any) {
     logger.error(`Error getting KPI ${id}: ${error.message}`, error);
     return res.status(500).json({
@@ -392,11 +467,11 @@ export const getKpiById = async (req: Request, res: Response) => {
 export const calculateKpi = async (req: Request, res: Response) => {
   const { id } = req.params;
   logger.info('Calculating KPI', { kpiId: id });
-  
+
   try {
     // Extract filter parameters from query
     const filters: KpiFilterOptions = {};
-    
+
     if (req.query.fromDate) filters.fromDate = new Date(req.query.fromDate as string);
     if (req.query.toDate) filters.toDate = new Date(req.query.toDate as string);
     if (req.query.entityId) filters.entityId = req.query.entityId as string;
@@ -411,15 +486,15 @@ export const calculateKpi = async (req: Request, res: Response) => {
     if (req.query.serviceIds) filters.serviceIds = String(req.query.serviceIds).split(',').filter(Boolean);
     if (req.query.formTemplateId) filters.formTemplateId = req.query.formTemplateId as string;
     if (req.query.formTemplateIds) filters.formTemplateIds = String(req.query.formTemplateIds).split(',').filter(Boolean);
-    
+
     // Calculate the KPI
     const result = await kpiCalculationService.calculateKpi(id, filters);
-    
+
     return res.status(200).json({
       success: true,
       data: result,
     });
-    
+
   } catch (error: any) {
     logger.error(`Error calculating KPI ${id}: ${error.message}`, error);
     return res.status(500).json({
@@ -435,7 +510,7 @@ export const calculateKpi = async (req: Request, res: Response) => {
 export const calculateAllKpisForEntity = async (req: Request, res: Response) => {
   const { entityId, entityType } = req.params;
   logger.info('Calculating all KPIs for entity', { entityId, entityType });
-  
+
   try {
     // Validate entity type
     const validEntityTypes = ['project', 'subproject', 'activity'];
@@ -446,10 +521,10 @@ export const calculateAllKpisForEntity = async (req: Request, res: Response) => 
         message: `Entity type must be one of: ${validEntityTypes.join(', ')}`,
       });
     }
-    
+
     // Extract filter parameters from query
     const filters: KpiFilterOptions = {};
-    
+
     if (req.query.fromDate) filters.fromDate = new Date(req.query.fromDate as string);
     if (req.query.toDate) filters.toDate = new Date(req.query.toDate as string);
     // Optional refinements
@@ -459,15 +534,15 @@ export const calculateAllKpisForEntity = async (req: Request, res: Response) => 
     if (req.query.serviceIds) filters.serviceIds = String(req.query.serviceIds).split(',').filter(Boolean);
     if (req.query.formTemplateId) filters.formTemplateId = req.query.formTemplateId as string;
     if (req.query.formTemplateIds) filters.formTemplateIds = String(req.query.formTemplateIds).split(',').filter(Boolean);
-    
+
     // Calculate all KPIs
     const results = await kpiCalculationService.calculateAllKpisForEntity(entityId, entityType, filters);
-    
+
     return res.status(200).json({
       success: true,
       data: results,
     });
-    
+
   } catch (error: any) {
     logger.error(`Error calculating KPIs for entity ${entityId}: ${error.message}`, error);
     return res.status(500).json({
@@ -482,15 +557,15 @@ export const calculateAllKpisForEntity = async (req: Request, res: Response) => 
  */
 export const getFormFields = async (req: Request, res: Response) => {
   logger.info('Getting all form fields for KPIs');
-  
+
   try {
     const fields = await kpiCalculationService.getKpiFields();
-    
+
     return res.status(200).json({
       success: true,
       data: fields,
     });
-    
+
   } catch (error: any) {
     logger.error(`Error getting form fields: ${error.message}`, error);
     return res.status(500).json({
@@ -501,7 +576,7 @@ export const getFormFields = async (req: Request, res: Response) => {
 };
 
 /**
- * Dynamic metrics summary (no KPI definitions)
+ * Dynamic metrics summary (no KPI definitions) with role-based filtering
  */
 export const getMetricsSummary = async (req: Request, res: Response) => {
   logger.info('Calculating dynamic metrics summary');
@@ -509,11 +584,6 @@ export const getMetricsSummary = async (req: Request, res: Response) => {
     const filters: KpiFilterOptions = {};
     if (req.query.fromDate) filters.fromDate = new Date(req.query.fromDate as string);
     if (req.query.toDate) filters.toDate = new Date(req.query.toDate as string);
-    if (req.query.entityId) filters.entityId = req.query.entityId as string;
-    if (req.query.entityType) filters.entityType = req.query.entityType as string;
-    if (req.query.projectId) filters.projectId = req.query.projectId as string;
-    if (req.query.subprojectId) filters.subprojectId = req.query.subprojectId as string;
-    if (req.query.activityId) filters.activityId = req.query.activityId as string;
     if (req.query.beneficiaryId) filters.beneficiaryId = req.query.beneficiaryId as string;
     if (req.query.beneficiaryIds) filters.beneficiaryIds = String(req.query.beneficiaryIds).split(',').filter(Boolean);
     if (req.query.serviceId) filters.serviceId = req.query.serviceId as string;
@@ -521,9 +591,44 @@ export const getMetricsSummary = async (req: Request, res: Response) => {
     if (req.query.formTemplateId) filters.formTemplateId = req.query.formTemplateId as string;
     if (req.query.formTemplateIds) filters.formTemplateIds = String(req.query.formTemplateIds).split(',').filter(Boolean);
 
-    // Scope summary to the authenticated user's own submissions by default
-    (filters as any).userId = req.user.id;
+    // Apply role-based filtering
+    const userFilter = await getUserEntityFilter(req.user.id);
+    logger.info('User filter for metrics summary', { userId: req.user.id, userFilter, hasExplicitParams: { entityId: req.query.entityId, projectId: req.query.projectId } });
 
+    // Check if explicit entity IDs are provided (these override automatic filtering)
+    const hasExplicitEntityId = !!(req.query.entityId || req.query.projectId || req.query.subprojectId || req.query.activityId);
+
+    if (hasExplicitEntityId) {
+      // Use explicit entity IDs provided by user
+      if (req.query.entityId) {
+        filters.entityId = req.query.entityId as string;
+        if (req.query.entityType) filters.entityType = req.query.entityType as string;
+      } else if (req.query.projectId) {
+        filters.projectId = req.query.projectId as string;
+      } else if (req.query.subprojectId) {
+        filters.subprojectId = req.query.subprojectId as string;
+      } else if (req.query.activityId) {
+        filters.activityId = req.query.activityId as string;
+      }
+    } else if (!userFilter.isAdmin) {
+      // No explicit entity IDs - apply automatic role-based filtering
+      if (userFilter.filterBySubmittedBy) {
+        // Field Operator: only their submissions
+        filters.userId = userFilter.submittedBy;
+      } else if (userFilter.projectIds && userFilter.projectIds.length > 0) {
+        // Program Manager: their projects
+        filters.projectIds = userFilter.projectIds;
+      } else if (userFilter.subprojectIds && userFilter.subprojectIds.length > 0) {
+        // Sub-Project Manager: their subprojects
+        filters.subprojectIds = userFilter.subprojectIds;
+      } else {
+        // User has no access - set impossible filter
+        filters.projectIds = [];
+      }
+    }
+    // If isAdmin is true and no explicit IDs, no additional filtering is applied (see all data)
+
+    logger.info('Final filters for metrics summary', { filters: JSON.stringify(filters) });
     const summary = await kpiCalculationService.calculateDynamicSummary(filters);
 
     return res.status(200).json({ success: true, data: summary });
@@ -534,7 +639,7 @@ export const getMetricsSummary = async (req: Request, res: Response) => {
 };
 
 /**
- * Dynamic metrics time series (no KPI definitions)
+ * Dynamic metrics time series (no KPI definitions) with role-based filtering
  */
 export const getMetricsSeries = async (req: Request, res: Response) => {
   logger.info('Calculating dynamic metrics series');
@@ -556,11 +661,6 @@ export const getMetricsSeries = async (req: Request, res: Response) => {
 
     if (req.query.fromDate) filters.fromDate = new Date(req.query.fromDate as string);
     if (req.query.toDate) filters.toDate = new Date(req.query.toDate as string);
-    if (req.query.entityId) filters.entityId = req.query.entityId as string;
-    if (req.query.entityType) filters.entityType = req.query.entityType as string;
-    if (req.query.projectId) filters.projectId = req.query.projectId as string;
-    if (req.query.subprojectId) filters.subprojectId = req.query.subprojectId as string;
-    if (req.query.activityId) filters.activityId = req.query.activityId as string;
     if (req.query.beneficiaryId) filters.beneficiaryId = req.query.beneficiaryId as string;
     if (req.query.beneficiaryIds) filters.beneficiaryIds = String(req.query.beneficiaryIds).split(',').filter(Boolean);
     if (req.query.serviceId) filters.serviceId = req.query.serviceId as string;
@@ -583,6 +683,42 @@ export const getMetricsSeries = async (req: Request, res: Response) => {
         return res.status(400).json({ success: false, message: 'Invalid JSON in dataFilters' });
       }
     }
+
+    // Apply role-based filtering
+    const userFilter = await getUserEntityFilter(req.user.id);
+
+    // Check if explicit entity IDs are provided (these override automatic filtering)
+    const hasExplicitEntityId = !!(req.query.entityId || req.query.projectId || req.query.subprojectId || req.query.activityId);
+
+    if (hasExplicitEntityId) {
+      // Use explicit entity IDs provided by user
+      if (req.query.entityId) {
+        filters.entityId = req.query.entityId as string;
+        if (req.query.entityType) filters.entityType = req.query.entityType as string;
+      } else if (req.query.projectId) {
+        filters.projectId = req.query.projectId as string;
+      } else if (req.query.subprojectId) {
+        filters.subprojectId = req.query.subprojectId as string;
+      } else if (req.query.activityId) {
+        filters.activityId = req.query.activityId as string;
+      }
+    } else if (!userFilter.isAdmin) {
+      // No explicit entity IDs - apply automatic role-based filtering
+      if (userFilter.filterBySubmittedBy) {
+        // Field Operator: only their submissions
+        filters.userId = userFilter.submittedBy;
+      } else if (userFilter.projectIds && userFilter.projectIds.length > 0) {
+        // Program Manager: their projects
+        filters.projectIds = userFilter.projectIds;
+      } else if (userFilter.subprojectIds && userFilter.subprojectIds.length > 0) {
+        // Sub-Project Manager: their subprojects
+        filters.subprojectIds = userFilter.subprojectIds;
+      } else {
+        // User has no access - set impossible filter
+        filters.projectIds = [];
+      }
+    }
+    // If isAdmin is true and no explicit IDs, no additional filtering is applied (see all data)
 
     const series = await kpiCalculationService.calculateDynamicSeries(metric as any, filters);
     return res.status(200).json({ success: true, data: series });
