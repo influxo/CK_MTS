@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { User, Role, UserRole, AuditLog, Project, Subproject, Activity, ProjectUser, SubprojectUser } from '../../models';
+import { User, Role, UserRole, AuditLog, Project, Subproject, Activity, ProjectUser, SubprojectUser, ActivityUser, Beneficiary, BeneficiaryAssignment } from '../../models';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { Op } from 'sequelize';
@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { createLogger } from '../../utils/logger';
 import { sendInvitationEmail } from '../../utils/mailer';
 import jwt from 'jsonwebtoken';
+import sequelize from '../../db/connection';
 
 // Create a logger instance for this module
 const logger = createLogger('users-controller');
@@ -1338,6 +1339,358 @@ export const acceptInvitation = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Get team members (employees) that share entity associations with the current user
+ * For Program Managers and Sub-Project Managers who may be associated with multiple entities
+ */
+export const getMyTeamMembers = async (req: Request, res: Response) => {
+  const authUser = (req as any).user;
+  if (!authUser || !authUser.id) {
+    logger.warn('Unauthorized team members request: missing auth user');
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+
+  const userId = authUser.id;
+  logger.info('Getting team members for user', { userId });
+
+  try {
+    // Get all entity associations for the current user
+    const [userProjects, userSubprojects, userActivities] = await Promise.all([
+      ProjectUser.findAll({
+        where: { userId },
+        attributes: ['projectId'],
+        raw: true,
+      }),
+      SubprojectUser.findAll({
+        where: { userId },
+        attributes: ['subprojectId'],
+        raw: true,
+      }),
+      ActivityUser.findAll({
+        where: { userId },
+        attributes: ['activityId'],
+        raw: true,
+      }),
+    ]);
+
+    const projectIds = userProjects.map((p: any) => p.projectId);
+    const directSubprojectIds = userSubprojects.map((s: any) => s.subprojectId);
+    const directActivityIds = userActivities.map((a: any) => a.activityId);
+
+    logger.info('User direct entity associations', {
+      userId,
+      projectCount: projectIds.length,
+      subprojectCount: directSubprojectIds.length,
+      activityCount: directActivityIds.length,
+    });
+
+    // Hierarchical lookup: include all child entities
+    let allSubprojectIds = [...directSubprojectIds];
+    let allActivityIds = [...directActivityIds];
+
+    // For each project, include all child subprojects
+    if (projectIds.length > 0) {
+      const childSubprojects = await Subproject.findAll({
+        where: { projectId: { [Op.in]: projectIds } },
+        attributes: ['id'],
+        raw: true,
+      });
+      const childSubprojectIds = childSubprojects.map((s: any) => s.id);
+      allSubprojectIds = [...new Set([...allSubprojectIds, ...childSubprojectIds])];
+    }
+
+    // For each subproject (direct + children of projects), include all child activities
+    if (allSubprojectIds.length > 0) {
+      const childActivities = await Activity.findAll({
+        where: { subprojectId: { [Op.in]: allSubprojectIds } },
+        attributes: ['id'],
+        raw: true,
+      });
+      const childActivityIds = childActivities.map((a: any) => a.id);
+      allActivityIds = [...new Set([...allActivityIds, ...childActivityIds])];
+    }
+
+    logger.info('User entity associations with hierarchy', {
+      userId,
+      projectCount: projectIds.length,
+      totalSubprojects: allSubprojectIds.length,
+      totalActivities: allActivityIds.length,
+    });
+
+    // Find all users who share at least one entity with the current user (including hierarchy)
+    const teamMemberIds = new Set<string>();
+
+    // Users in same projects
+    if (projectIds.length > 0) {
+      const projectMembers = await ProjectUser.findAll({
+        where: {
+          projectId: { [Op.in]: projectIds },
+          userId: { [Op.ne]: userId },
+        },
+        attributes: ['userId'],
+        raw: true,
+      });
+      projectMembers.forEach((pm: any) => teamMemberIds.add(pm.userId));
+    }
+
+    // Users in same subprojects (including children of projects)
+    if (allSubprojectIds.length > 0) {
+      const subprojectMembers = await SubprojectUser.findAll({
+        where: {
+          subprojectId: { [Op.in]: allSubprojectIds },
+          userId: { [Op.ne]: userId },
+        },
+        attributes: ['userId'],
+        raw: true,
+      });
+      subprojectMembers.forEach((sm: any) => teamMemberIds.add(sm.userId));
+    }
+
+    // Users in same activities (including children of subprojects)
+    if (allActivityIds.length > 0) {
+      const activityMembers = await ActivityUser.findAll({
+        where: {
+          activityId: { [Op.in]: allActivityIds },
+          userId: { [Op.ne]: userId },
+        },
+        attributes: ['userId'],
+        raw: true,
+      });
+      activityMembers.forEach((am: any) => teamMemberIds.add(am.userId));
+    }
+
+    // Fetch full user details for team members
+    const teamMembers = teamMemberIds.size > 0
+      ? await User.findAll({
+          where: { id: { [Op.in]: Array.from(teamMemberIds) } },
+          include: [{ association: 'roles' }],
+          order: [['firstName', 'ASC'], ['lastName', 'ASC']],
+        })
+      : [];
+
+    logger.info('Successfully retrieved team members', { userId, teamMemberCount: teamMembers.length });
+    return res.status(200).json({
+      success: true,
+      data: {
+        teamMembers,
+        count: teamMembers.length,
+      },
+    });
+  } catch (error: any) {
+    logger.error('Error fetching team members', { userId, error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+    });
+  }
+};
+
+/**
+ * Get beneficiaries that are associated with entities the current user has access to
+ * For Program Managers and Sub-Project Managers who may be associated with multiple entities
+ */
+export const getMyBeneficiaries = async (req: Request, res: Response) => {
+  const authUser = (req as any).user;
+  if (!authUser || !authUser.id) {
+    logger.warn('Unauthorized beneficiaries request: missing auth user');
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+
+  const userId = authUser.id;
+  logger.info('Getting beneficiaries for user', { userId });
+
+  try {
+    // Get all entity associations for the current user
+    const [userProjects, userSubprojects] = await Promise.all([
+      ProjectUser.findAll({
+        where: { userId },
+        attributes: ['projectId'],
+        raw: true,
+      }),
+      SubprojectUser.findAll({
+        where: { userId },
+        attributes: ['subprojectId'],
+        raw: true,
+      }),
+    ]);
+
+    const projectIds = userProjects.map((p: any) => p.projectId);
+    const subprojectIds = userSubprojects.map((s: any) => s.subprojectId);
+
+    logger.info('User entity associations for beneficiaries', {
+      userId,
+      projectCount: projectIds.length,
+      subprojectCount: subprojectIds.length,
+    });
+
+    // For each project, also include all its child subprojects
+    let allSubprojectIds = [...subprojectIds];
+    if (projectIds.length > 0) {
+      const childSubprojects = await Subproject.findAll({
+        where: { projectId: { [Op.in]: projectIds } },
+        attributes: ['id'],
+        raw: true,
+      });
+      const childSubprojectIds = childSubprojects.map((s: any) => s.id);
+      allSubprojectIds = [...new Set([...allSubprojectIds, ...childSubprojectIds])];
+    }
+
+    logger.info('Including child subprojects', {
+      userId,
+      directSubprojects: subprojectIds.length,
+      totalSubprojects: allSubprojectIds.length,
+    });
+
+    // Build conditions for beneficiary assignments
+    const conditions: any[] = [];
+    
+    if (projectIds.length > 0) {
+      conditions.push({
+        entityId: { [Op.in]: projectIds },
+        entityType: 'project',
+      });
+    }
+
+    if (allSubprojectIds.length > 0) {
+      conditions.push({
+        entityId: { [Op.in]: allSubprojectIds },
+        entityType: 'subproject',
+      });
+    }
+
+    if (conditions.length === 0) {
+      logger.info('User has no entity associations, returning empty beneficiaries list', { userId });
+      return res.status(200).json({
+        success: true,
+        data: {
+          beneficiaries: [],
+          count: 0,
+        },
+      });
+    }
+
+    // Find beneficiary assignments matching user's entities (including children)
+    const beneficiaryAssignments = await BeneficiaryAssignment.findAll({
+      where: { [Op.or]: conditions },
+      attributes: ['beneficiaryId'],
+      group: ['beneficiaryId'],
+      raw: true,
+    });
+
+    const beneficiaryIds = beneficiaryAssignments.map((ba: any) => ba.beneficiaryId);
+
+    // Fetch beneficiaries with encrypted PII
+    const beneficiariesRaw = beneficiaryIds.length > 0
+      ? await Beneficiary.findAll({
+          where: { id: { [Op.in]: beneficiaryIds } },
+          attributes: ['id', 'pseudonym', 'status', 'createdAt', 'updatedAt', 
+                      'firstNameEnc', 'lastNameEnc', 'dobEnc', 'genderEnc', 
+                      'addressEnc', 'municipalityEnc', 'nationalityEnc', 
+                      'nationalIdEnc', 'phoneEnc', 'emailEnc'],
+          order: [['pseudonym', 'ASC']],
+        })
+      : [];
+
+    // Determine if user can view decrypted PII (same logic as beneficiaries controller)
+    const roles = (req as any).userRoles || [];
+    const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
+    // Relaxed policy: allow all roles to decrypt PII for now
+    const canDecrypt = true;
+    logger.info('My beneficiaries role evaluation', { userId, roleNames, canDecrypt });
+
+    let beneficiaries: any[];
+    if (canDecrypt) {
+      // Import decryptField utility
+      const { decryptField } = require('../../utils/crypto');
+      
+      beneficiaries = beneficiariesRaw.map((b: any) => ({
+        id: b.id,
+        pseudonym: b.pseudonym,
+        status: b.status,
+        createdAt: b.createdAt,
+        updatedAt: b.updatedAt,
+        // Include both encrypted and decrypted for authorized users
+        piiEnc: {
+          firstNameEnc: b.firstNameEnc,
+          lastNameEnc: b.lastNameEnc,
+          dobEnc: b.dobEnc,
+          nationalIdEnc: b.nationalIdEnc,
+          phoneEnc: b.phoneEnc,
+          emailEnc: b.emailEnc,
+          addressEnc: b.addressEnc,
+          genderEnc: b.genderEnc,
+          municipalityEnc: b.municipalityEnc,
+          nationalityEnc: b.nationalityEnc,
+        },
+        pii: {
+          firstName: decryptField(b.firstNameEnc as any),
+          lastName: decryptField(b.lastNameEnc as any),
+          dob: decryptField(b.dobEnc as any),
+          nationalId: decryptField(b.nationalIdEnc as any),
+          phone: decryptField(b.phoneEnc as any),
+          email: decryptField(b.emailEnc as any),
+          address: decryptField(b.addressEnc as any),
+          gender: decryptField(b.genderEnc as any),
+          municipality: decryptField(b.municipalityEnc as any),
+          nationality: decryptField(b.nationalityEnc as any),
+        },
+      }));
+
+      // Audit bulk PII read
+      try {
+        await AuditLog.create({
+          userId,
+          action: 'BENEFICIARY_PII_LIST_READ',
+          description: `Read PII for ${beneficiaries.length} beneficiaries via GET /users/my-beneficiaries`,
+          details: JSON.stringify({ count: beneficiaries.length }),
+        });
+      } catch (_) { /* ignore audit failures */ }
+
+      // Prevent caching decrypted responses
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('X-PII-Access', 'decrypt');
+    } else {
+      // Return only encrypted fields
+      beneficiaries = beneficiariesRaw.map((b: any) => ({
+        id: b.id,
+        pseudonym: b.pseudonym,
+        status: b.status,
+        createdAt: b.createdAt,
+        updatedAt: b.updatedAt,
+        piiEnc: {
+          firstNameEnc: b.firstNameEnc,
+          lastNameEnc: b.lastNameEnc,
+          dobEnc: b.dobEnc,
+          nationalIdEnc: b.nationalIdEnc,
+          phoneEnc: b.phoneEnc,
+          emailEnc: b.emailEnc,
+          addressEnc: b.addressEnc,
+          genderEnc: b.genderEnc,
+          municipalityEnc: b.municipalityEnc,
+          nationalityEnc: b.nationalityEnc,
+        },
+      }));
+      res.setHeader('X-PII-Access', 'encrypted');
+    }
+
+    logger.info('Successfully retrieved beneficiaries', { userId, beneficiaryCount: beneficiaries.length });
+    return res.status(200).json({
+      success: true,
+      data: {
+        beneficiaries,
+        count: beneficiaries.length,
+      },
+    });
+  } catch (error: any) {
+    logger.error('Error fetching beneficiaries', { userId, error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+    });
+  }
+};
+
 export default {
   getAllUsers,
   getUserById,
@@ -1350,4 +1703,6 @@ export default {
   verifyEmail,
   acceptInvitation,
   getUserProjectsWithSubprojects,
+  getMyTeamMembers,
+  getMyBeneficiaries,
 };
