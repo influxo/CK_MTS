@@ -20,7 +20,7 @@ export const createFormTemplate = async (req: Request, res: Response) => {
   logger.info('Creating new form template', { templateName: req.body.name });
   
   try {
-    const { name, entities, schema } = req.body;
+    const { name, entities, schema, includeBeneficiaries } = req.body;
 
     // Validate required fields
     if (!name || !entities || !schema) {
@@ -191,12 +191,13 @@ export const createFormTemplate = async (req: Request, res: Response) => {
       }
 
       // Create the form template
-      logger.info('Creating form template', { name });
+      logger.info('Creating form template', { name, includeBeneficiaries });
       const formTemplate = await FormTemplate.create({
         id: uuidv4(),
         name,
         schema,
-        version: 1
+        version: 1,
+        includeBeneficiaries: includeBeneficiaries === true
       }, { transaction });
       
       // Create associations with entities
@@ -282,7 +283,7 @@ export const updateFormTemplate = async (req: Request, res: Response) => {
   logger.info('Updating form template', { templateId: id });
   
   try {
-    const { name, schema, entities } = req.body;
+    const { name, schema, entities, includeBeneficiaries } = req.body;
     
     // Use transaction for atomicity
     const result = await sequelize.transaction(async (transaction) => {
@@ -361,12 +362,19 @@ export const updateFormTemplate = async (req: Request, res: Response) => {
 
       // Update the template
       logger.info('Updating form template', { templateId: id });
+      const updateData: any = {
+        name: name || template.name,
+        schema: schema || template.schema,
+        version: newVersion,
+      };
+      
+      // Only update includeBeneficiaries if it's explicitly provided
+      if (includeBeneficiaries !== undefined) {
+        updateData.includeBeneficiaries = includeBeneficiaries === true;
+      }
+      
       const [updated] = await FormTemplate.update(
-        {
-          name: name || template.name,
-          schema: schema || template.schema,
-          version: newVersion,
-        },
+        updateData,
         {
           where: { id },
           transaction

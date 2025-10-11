@@ -11,6 +11,7 @@ class FormTemplate extends Model {
   public schema!: any; // JSONB field storing form structure
   public version!: number;
   public status!: string; // 'active' | 'inactive'
+  public includeBeneficiaries!: boolean; // Whether this form should create/link beneficiaries
 
   // Timestamps
   public readonly createdAt!: Date;
@@ -135,6 +136,11 @@ FormTemplate.init(
       validate: {
         isIn: [["active", "inactive"]],
       },
+    },
+    includeBeneficiaries: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     createdAt: {
       type: DataTypes.DATE,

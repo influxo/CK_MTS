@@ -21,6 +21,9 @@ class Beneficiary extends Model {
   public nationalIdEnc?: any | null;   
   public phoneEnc?: any | null;
   public emailEnc?: any | null;
+  public ethnicityEnc?: any | null;
+  public residenceEnc?: any | null;
+  public householdMembersEnc?: any | null;
 
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
@@ -55,6 +58,9 @@ Beneficiary.init(
     nationalIdEnc:   { type: DataTypes.JSONB, allowNull: true },
     phoneEnc:        { type: DataTypes.JSONB, allowNull: true },
     emailEnc:        { type: DataTypes.JSONB, allowNull: true },
+    ethnicityEnc:    { type: DataTypes.JSONB, allowNull: true },
+    residenceEnc:    { type: DataTypes.JSONB, allowNull: true },
+    householdMembersEnc: { type: DataTypes.JSONB, allowNull: true },
 
     createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
     updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },

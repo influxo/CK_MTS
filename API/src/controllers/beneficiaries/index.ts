@@ -47,6 +47,9 @@ const list = async (req: Request, res: Response) => {
           genderEnc: it.genderEnc,
           municipalityEnc: it.municipalityEnc,
           nationalityEnc: it.nationalityEnc,
+          ethnicityEnc: it.ethnicityEnc,
+          residenceEnc: it.residenceEnc,
+          householdMembersEnc: it.householdMembersEnc,
         },
         pii: {
           firstName: decryptField(it.firstNameEnc as any),
@@ -59,6 +62,9 @@ const list = async (req: Request, res: Response) => {
           gender: decryptField(it.genderEnc as any),
           municipality: decryptField(it.municipalityEnc as any),
           nationality: decryptField(it.nationalityEnc as any),
+          ethnicity: decryptField(it.ethnicityEnc as any),
+          residence: decryptField(it.residenceEnc as any),
+          householdMembers: decryptField(it.householdMembersEnc as any),
         },
       }));
 
@@ -97,6 +103,9 @@ const list = async (req: Request, res: Response) => {
           genderEnc: it.genderEnc,
           municipalityEnc: it.municipalityEnc,
           nationalityEnc: it.nationalityEnc,
+          ethnicityEnc: it.ethnicityEnc,
+          residenceEnc: it.residenceEnc,
+          householdMembersEnc: it.householdMembersEnc,
         },
       }));
     }
@@ -150,6 +159,9 @@ const getById = async (req: Request, res: Response) => {
           genderEnc: b.get('genderEnc'),
           municipalityEnc: b.get('municipalityEnc'),
           nationalityEnc: b.get('nationalityEnc'),
+          ethnicityEnc: b.get('ethnicityEnc'),
+          residenceEnc: b.get('residenceEnc'),
+          householdMembersEnc: b.get('householdMembersEnc'),
         };
         const pii = {
           firstName: decryptField(piiEnc.firstNameEnc as any),
@@ -162,6 +174,9 @@ const getById = async (req: Request, res: Response) => {
           gender: decryptField(piiEnc.genderEnc as any),
           municipality: decryptField(piiEnc.municipalityEnc as any),
           nationality: decryptField(piiEnc.nationalityEnc as any),
+          ethnicity: decryptField(piiEnc.ethnicityEnc as any),
+          residence: decryptField(piiEnc.residenceEnc as any),
+          householdMembers: decryptField(piiEnc.householdMembersEnc as any),
         };
 
         await AuditLog.create({
@@ -188,6 +203,9 @@ const getById = async (req: Request, res: Response) => {
         genderEnc: b.get('genderEnc'),
         municipalityEnc: b.get('municipalityEnc'),
         nationalityEnc: b.get('nationalityEnc'),
+        ethnicityEnc: b.get('ethnicityEnc'),
+        residenceEnc: b.get('residenceEnc'),
+        householdMembersEnc: b.get('householdMembersEnc'),
       };
 
       return { data: { ...base, piiEnc } };
@@ -230,6 +248,9 @@ const getPIIById = async (req: Request, res: Response) => {
         gender: decryptField(b.get('genderEnc') as any),
         municipality: decryptField(b.get('municipalityEnc') as any),
         nationality: decryptField(b.get('nationalityEnc') as any),
+        ethnicity: decryptField(b.get('ethnicityEnc') as any),
+        residence: decryptField(b.get('residenceEnc') as any),
+        householdMembers: decryptField(b.get('householdMembersEnc') as any),
       } as const;
 
       await AuditLog.create({
@@ -268,6 +289,9 @@ const create = async (req: Request, res: Response) => {
     status: req.body?.status ?? 'active',
     municipality: req.body?.municipality ?? null,
     nationality: req.body?.nationality ?? null,
+    ethnicity: req.body?.ethnicity ?? null,
+    residence: req.body?.residence ?? null,
+    householdMembers: req.body?.householdMembers ?? null,
   } as any;
   const details = (req.body && typeof req.body.details === 'object') ? req.body.details : null;
 
@@ -318,6 +342,9 @@ const update = async (req: Request, res: Response) => {
     status: req.body?.status,
     municipality: req.body?.municipality,
     nationality: req.body?.nationality,
+    ethnicity: req.body?.ethnicity,
+    residence: req.body?.residence,
+    householdMembers: req.body?.householdMembers,
   } as any;
 
   try {
@@ -1119,6 +1146,9 @@ const listByEntity = async (req: Request, res: Response) => {
       genderEnc: b.get('genderEnc'),
       municipalityEnc: b.get('municipalityEnc'),
       nationalityEnc: b.get('nationalityEnc'),
+      ethnicityEnc: b.get('ethnicityEnc'),
+      residenceEnc: b.get('residenceEnc'),
+      householdMembersEnc: b.get('householdMembersEnc'),
     }));
 
     if (canDecrypt) {
@@ -1139,6 +1169,9 @@ const listByEntity = async (req: Request, res: Response) => {
           genderEnc: it.genderEnc,
           municipalityEnc: it.municipalityEnc,
           nationalityEnc: it.nationalityEnc,
+          ethnicityEnc: it.ethnicityEnc,
+          residenceEnc: it.residenceEnc,
+          householdMembersEnc: it.householdMembersEnc,
         },
         pii: {
           firstName: decryptField(it.firstNameEnc as any),
@@ -1151,6 +1184,9 @@ const listByEntity = async (req: Request, res: Response) => {
           gender: decryptField(it.genderEnc as any),
           municipality: decryptField(it.municipalityEnc as any),
           nationality: decryptField(it.nationalityEnc as any),
+          ethnicity: decryptField(it.ethnicityEnc as any),
+          residence: decryptField(it.residenceEnc as any),
+          householdMembers: decryptField(it.householdMembersEnc as any),
         },
       }));
 
@@ -1187,6 +1223,9 @@ const listByEntity = async (req: Request, res: Response) => {
           genderEnc: it.genderEnc,
           municipalityEnc: it.municipalityEnc,
           nationalityEnc: it.nationalityEnc,
+          ethnicityEnc: it.ethnicityEnc,
+          residenceEnc: it.residenceEnc,
+          householdMembersEnc: it.householdMembersEnc,
         },
       }));
       res.setHeader('X-PII-Access', 'encrypted');

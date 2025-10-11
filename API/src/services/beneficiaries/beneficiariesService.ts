@@ -44,6 +44,9 @@ type BeneficiaryInput = {
   status?: 'active' | 'inactive';
   municipality?: string | null;
   nationality?: string | null;
+  ethnicity?: string | null;
+  residence?: string | null;
+  householdMembers?: number | null;
 };
 
 const buildCandidateKeysFromInput = (input: BeneficiaryInput): Array<{ keyType: string; keyHash: string }> => {
@@ -98,6 +101,10 @@ export async function upsertFromFormResponse(
   const address = String(getByPath(data, fields.address) ?? '').trim() || undefined;
   const municipality = String(getByPath(data, fields.municipality) ?? '').trim() || undefined;
   const nationality = String(getByPath(data, fields.nationality) ?? '').trim() || undefined;
+  const ethnicity = String(getByPath(data, fields.ethnicity) ?? '').trim() || undefined;
+  const residence = String(getByPath(data, fields.residence) ?? '').trim() || undefined;
+  const householdMembersRaw = getByPath(data, fields.householdMembers);
+  const householdMembers = householdMembersRaw != null ? parseInt(String(householdMembersRaw), 10) : undefined;
   const genderRaw = String(getByPath(data, fields.gender) ?? '').trim() || undefined;
   const gender = genderRaw
     ? (genderRaw.toUpperCase().startsWith('M') ? 'M' : genderRaw.toUpperCase().startsWith('F') ? 'F' : undefined)
@@ -146,6 +153,9 @@ export async function upsertFromFormResponse(
       addressEnc: address ? encryptField(address) : undefined,
       municipalityEnc: municipality ? encryptField(municipality) : undefined,
       nationalityEnc: nationality ? encryptField(nationality) : undefined,
+      ethnicityEnc: ethnicity ? encryptField(ethnicity) : undefined,
+      residenceEnc: residence ? encryptField(residence) : undefined,
+      householdMembersEnc: householdMembers != null ? encryptField(String(householdMembers)) : undefined,
       genderEnc: gender ? encryptField(gender) : undefined,
     }, {
       where: { id: existingBeneficiaryId },
@@ -181,6 +191,9 @@ export async function upsertFromFormResponse(
     addressEnc: address ? encryptField(address) : null,
     municipalityEnc: municipality ? encryptField(municipality) : null,
     nationalityEnc: nationality ? encryptField(nationality) : null,
+    ethnicityEnc: ethnicity ? encryptField(ethnicity) : null,
+    residenceEnc: residence ? encryptField(residence) : null,
+    householdMembersEnc: householdMembers != null ? encryptField(String(householdMembers)) : null,
     genderEnc: gender ? encryptField(gender) : null,
   }, { transaction: opts.transaction });
 
@@ -213,6 +226,9 @@ export default {
       genderEnc: encryptField(input.gender ?? null),
       municipalityEnc: encryptField(input.municipality ?? null),
       nationalityEnc: encryptField(input.nationality ?? null),
+      ethnicityEnc: encryptField(input.ethnicity ?? null),
+      residenceEnc: encryptField(input.residence ?? null),
+      householdMembersEnc: encryptField(input.householdMembers != null ? String(input.householdMembers) : null),
     }, { transaction: opts.transaction });
 
     // Create match keys
@@ -244,6 +260,9 @@ export default {
     if (input.gender !== undefined) update.genderEnc = encryptField(input.gender ?? null);
     if (input.municipality !== undefined) update.municipalityEnc = encryptField(input.municipality);
     if (input.nationality !== undefined) update.nationalityEnc = encryptField(input.nationality);
+    if (input.ethnicity !== undefined) update.ethnicityEnc = encryptField(input.ethnicity);
+    if (input.residence !== undefined) update.residenceEnc = encryptField(input.residence);
+    if (input.householdMembers !== undefined) update.householdMembersEnc = encryptField(input.householdMembers != null ? String(input.householdMembers) : null);
 
     await existing.update(update, { transaction: opts.transaction });
 
@@ -296,6 +315,9 @@ export default {
         'genderEnc',
         'municipalityEnc',
         'nationalityEnc',
+        'ethnicityEnc',
+        'residenceEnc',
+        'householdMembersEnc',
       );
     }
     const { rows, count } = await Beneficiary.findAndCountAll({
@@ -318,6 +340,9 @@ export default {
         base.genderEnc = r.get('genderEnc');
         base.municipalityEnc = r.get('municipalityEnc');
         base.nationalityEnc = r.get('nationalityEnc');
+        base.ethnicityEnc = r.get('ethnicityEnc');
+        base.residenceEnc = r.get('residenceEnc');
+        base.householdMembersEnc = r.get('householdMembersEnc');
       }
       return base;
     });

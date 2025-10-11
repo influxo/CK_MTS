@@ -1351,7 +1351,17 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
   }
 
   const userId = authUser.id;
-  logger.info('Getting team members for user', { userId });
+  
+  // Pagination parameters
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
+  const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit || '20'), 10)));
+  const offset = (page - 1) * limit;
+  
+  // Entity filter parameters
+  const filterEntityId = req.query.entityId ? String(req.query.entityId) : null;
+  const filterEntityType = req.query.entityType ? String(req.query.entityType) : null;
+  
+  logger.info('Getting team members for user', { userId, page, limit, filterEntityId, filterEntityType });
 
   try {
     // Get all entity associations for the current user
@@ -1417,14 +1427,65 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
       totalActivities: allActivityIds.length,
     });
 
+    // Apply entity filter if provided
+    let filteredProjectIds = projectIds;
+    let filteredSubprojectIds = allSubprojectIds;
+    let filteredActivityIds = allActivityIds;
+
+    if (filterEntityId && filterEntityType) {
+      // Validate that the user has access to the filtered entity
+      if (filterEntityType === 'project' && !projectIds.includes(filterEntityId)) {
+        logger.warn('User attempted to filter by unauthorized project', { userId, filterEntityId });
+        return res.status(403).json({ success: false, message: 'Access denied to specified entity' });
+      }
+      if (filterEntityType === 'subproject' && !allSubprojectIds.includes(filterEntityId)) {
+        logger.warn('User attempted to filter by unauthorized subproject', { userId, filterEntityId });
+        return res.status(403).json({ success: false, message: 'Access denied to specified entity' });
+      }
+      if (filterEntityType === 'activity' && !allActivityIds.includes(filterEntityId)) {
+        logger.warn('User attempted to filter by unauthorized activity', { userId, filterEntityId });
+        return res.status(403).json({ success: false, message: 'Access denied to specified entity' });
+      }
+
+      // Apply the filter with hierarchy
+      if (filterEntityType === 'project') {
+        // When filtering by project, include the project AND all its child subprojects
+        filteredProjectIds = [filterEntityId];
+        
+        // Get child subprojects for this specific project
+        const projectChildSubprojects = await Subproject.findAll({
+          where: { projectId: filterEntityId },
+          attributes: ['id'],
+          raw: true,
+        });
+        filteredSubprojectIds = projectChildSubprojects.map((s: any) => s.id);
+        filteredActivityIds = [];
+        
+        logger.info('Filtering team by project with hierarchy', { 
+          filterEntityId, 
+          childSubprojects: filteredSubprojectIds.length 
+        });
+      } else if (filterEntityType === 'subproject') {
+        // Subproject filter - no hierarchy needed
+        filteredProjectIds = [];
+        filteredSubprojectIds = [filterEntityId];
+        filteredActivityIds = [];
+      } else if (filterEntityType === 'activity') {
+        // Activity filter - no hierarchy needed
+        filteredProjectIds = [];
+        filteredSubprojectIds = [];
+        filteredActivityIds = [filterEntityId];
+      }
+    }
+
     // Find all users who share at least one entity with the current user (including hierarchy)
     const teamMemberIds = new Set<string>();
 
     // Users in same projects
-    if (projectIds.length > 0) {
+    if (filteredProjectIds.length > 0) {
       const projectMembers = await ProjectUser.findAll({
         where: {
-          projectId: { [Op.in]: projectIds },
+          projectId: { [Op.in]: filteredProjectIds },
           userId: { [Op.ne]: userId },
         },
         attributes: ['userId'],
@@ -1434,10 +1495,10 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
     }
 
     // Users in same subprojects (including children of projects)
-    if (allSubprojectIds.length > 0) {
+    if (filteredSubprojectIds.length > 0) {
       const subprojectMembers = await SubprojectUser.findAll({
         where: {
-          subprojectId: { [Op.in]: allSubprojectIds },
+          subprojectId: { [Op.in]: filteredSubprojectIds },
           userId: { [Op.ne]: userId },
         },
         attributes: ['userId'],
@@ -1447,10 +1508,10 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
     }
 
     // Users in same activities (including children of subprojects)
-    if (allActivityIds.length > 0) {
+    if (filteredActivityIds.length > 0) {
       const activityMembers = await ActivityUser.findAll({
         where: {
-          activityId: { [Op.in]: allActivityIds },
+          activityId: { [Op.in]: filteredActivityIds },
           userId: { [Op.ne]: userId },
         },
         attributes: ['userId'],
@@ -1459,22 +1520,32 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
       activityMembers.forEach((am: any) => teamMemberIds.add(am.userId));
     }
 
-    // Fetch full user details for team members
-    const teamMembers = teamMemberIds.size > 0
+    const totalItems = teamMemberIds.size;
+    const totalPages = Math.ceil(totalItems / limit);
+    const teamMemberIdsArray = Array.from(teamMemberIds);
+
+    // Fetch full user details for team members (paginated)
+    const teamMembers = teamMemberIdsArray.length > 0
       ? await User.findAll({
-          where: { id: { [Op.in]: Array.from(teamMemberIds) } },
+          where: { id: { [Op.in]: teamMemberIdsArray } },
           include: [{ association: 'roles' }],
           order: [['firstName', 'ASC'], ['lastName', 'ASC']],
+          limit,
+          offset,
         })
       : [];
 
-    logger.info('Successfully retrieved team members', { userId, teamMemberCount: teamMembers.length });
+    logger.info('Successfully retrieved team members', { userId, teamMemberCount: teamMembers.length, page, totalItems });
     return res.status(200).json({
       success: true,
       data: {
         teamMembers,
         count: teamMembers.length,
       },
+      page,
+      limit,
+      totalPages,
+      totalItems,
     });
   } catch (error: any) {
     logger.error('Error fetching team members', { userId, error: error.message });
@@ -1497,7 +1568,17 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
   }
 
   const userId = authUser.id;
-  logger.info('Getting beneficiaries for user', { userId });
+  
+  // Pagination parameters
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
+  const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit || '20'), 10)));
+  const offset = (page - 1) * limit;
+  
+  // Entity filter parameters
+  const filterEntityId = req.query.entityId ? String(req.query.entityId) : null;
+  const filterEntityType = req.query.entityType ? String(req.query.entityType) : null;
+  
+  logger.info('Getting beneficiaries for user', { userId, page, limit, filterEntityId, filterEntityType });
 
   try {
     // Get all entity associations for the current user
@@ -1544,18 +1625,67 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
     // Build conditions for beneficiary assignments
     const conditions: any[] = [];
     
-    if (projectIds.length > 0) {
-      conditions.push({
-        entityId: { [Op.in]: projectIds },
-        entityType: 'project',
-      });
-    }
+    // Apply entity filter if provided
+    if (filterEntityId && filterEntityType) {
+      // Validate that the user has access to the filtered entity
+      if (filterEntityType === 'project' && !projectIds.includes(filterEntityId)) {
+        logger.warn('User attempted to filter by unauthorized project', { userId, filterEntityId });
+        return res.status(403).json({ success: false, message: 'Access denied to specified entity' });
+      }
+      if (filterEntityType === 'subproject' && !allSubprojectIds.includes(filterEntityId)) {
+        logger.warn('User attempted to filter by unauthorized subproject', { userId, filterEntityId });
+        return res.status(403).json({ success: false, message: 'Access denied to specified entity' });
+      }
+      
+      // Apply the filter with hierarchy
+      if (filterEntityType === 'project') {
+        // When filtering by project, include the project AND all its child subprojects
+        conditions.push({
+          entityId: filterEntityId,
+          entityType: 'project',
+        });
+        
+        // Get child subprojects for this specific project
+        const projectChildSubprojects = await Subproject.findAll({
+          where: { projectId: filterEntityId },
+          attributes: ['id'],
+          raw: true,
+        });
+        const projectChildSubprojectIds = projectChildSubprojects.map((s: any) => s.id);
+        
+        if (projectChildSubprojectIds.length > 0) {
+          conditions.push({
+            entityId: { [Op.in]: projectChildSubprojectIds },
+            entityType: 'subproject',
+          });
+        }
+        
+        logger.info('Filtering by project with hierarchy', { 
+          filterEntityId, 
+          childSubprojects: projectChildSubprojectIds.length 
+        });
+      } else {
+        // Subproject filter - no hierarchy needed
+        conditions.push({
+          entityId: filterEntityId,
+          entityType: filterEntityType,
+        });
+      }
+    } else {
+      // No filter - include all user's entities
+      if (projectIds.length > 0) {
+        conditions.push({
+          entityId: { [Op.in]: projectIds },
+          entityType: 'project',
+        });
+      }
 
-    if (allSubprojectIds.length > 0) {
-      conditions.push({
-        entityId: { [Op.in]: allSubprojectIds },
-        entityType: 'subproject',
-      });
+      if (allSubprojectIds.length > 0) {
+        conditions.push({
+          entityId: { [Op.in]: allSubprojectIds },
+          entityType: 'subproject',
+        });
+      }
     }
 
     if (conditions.length === 0) {
@@ -1565,6 +1695,10 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
         data: {
           beneficiaries: [],
           count: 0,
+          page,
+          limit,
+          totalPages: 0,
+          totalItems: 0,
         },
       });
     }
@@ -1578,16 +1712,21 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
     });
 
     const beneficiaryIds = beneficiaryAssignments.map((ba: any) => ba.beneficiaryId);
+    const totalItems = beneficiaryIds.length;
+    const totalPages = Math.ceil(totalItems / limit);
 
-    // Fetch beneficiaries with encrypted PII
+    // Fetch beneficiaries with encrypted PII (paginated)
     const beneficiariesRaw = beneficiaryIds.length > 0
       ? await Beneficiary.findAll({
           where: { id: { [Op.in]: beneficiaryIds } },
           attributes: ['id', 'pseudonym', 'status', 'createdAt', 'updatedAt', 
                       'firstNameEnc', 'lastNameEnc', 'dobEnc', 'genderEnc', 
                       'addressEnc', 'municipalityEnc', 'nationalityEnc', 
-                      'nationalIdEnc', 'phoneEnc', 'emailEnc'],
+                      'nationalIdEnc', 'phoneEnc', 'emailEnc',
+                      'ethnicityEnc', 'residenceEnc', 'householdMembersEnc'],
           order: [['pseudonym', 'ASC']],
+          limit,
+          offset,
         })
       : [];
 
@@ -1621,6 +1760,9 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
           genderEnc: b.genderEnc,
           municipalityEnc: b.municipalityEnc,
           nationalityEnc: b.nationalityEnc,
+          ethnicityEnc: b.ethnicityEnc,
+          residenceEnc: b.residenceEnc,
+          householdMembersEnc: b.householdMembersEnc,
         },
         pii: {
           firstName: decryptField(b.firstNameEnc as any),
@@ -1633,6 +1775,9 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
           gender: decryptField(b.genderEnc as any),
           municipality: decryptField(b.municipalityEnc as any),
           nationality: decryptField(b.nationalityEnc as any),
+          ethnicity: decryptField(b.ethnicityEnc as any),
+          residence: decryptField(b.residenceEnc as any),
+          householdMembers: decryptField(b.householdMembersEnc as any),
         },
       }));
 
@@ -1669,18 +1814,25 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
           genderEnc: b.genderEnc,
           municipalityEnc: b.municipalityEnc,
           nationalityEnc: b.nationalityEnc,
+          ethnicityEnc: b.ethnicityEnc,
+          residenceEnc: b.residenceEnc,
+          householdMembersEnc: b.householdMembersEnc,
         },
       }));
       res.setHeader('X-PII-Access', 'encrypted');
     }
 
-    logger.info('Successfully retrieved beneficiaries', { userId, beneficiaryCount: beneficiaries.length });
+    logger.info('Successfully retrieved beneficiaries', { userId, beneficiaryCount: beneficiaries.length, page, totalItems });
     return res.status(200).json({
       success: true,
       data: {
         beneficiaries,
         count: beneficiaries.length,
       },
+      page,
+      limit,
+      totalPages,
+      totalItems,
     });
   } catch (error: any) {
     logger.error('Error fetching beneficiaries', { userId, error: error.message });

@@ -139,7 +139,6 @@ router.use(loggerMiddleware);
  *                     id:
  *                       type: string
  *                       format: uuid
- *                       description: ID of the entity (project, subproject, or activity)
  *                     type:
  *                       type: string
  *                       enum: [project, subproject, activity]
@@ -177,6 +176,10 @@ router.use(loggerMiddleware);
  *                           items:
  *                             type: string
  *                           description: Options for dropdown fields
+ *               includeBeneficiaries:
+ *                 type: boolean
+ *                 description: Whether this form should create/link beneficiaries on submission
+ *                 default: false
  *     responses:
  *       201:
  *         description: Form template created successfully

@@ -45,11 +45,37 @@ router.get('/',
  * @swagger
  * /users/my-team:
  *   get:
- *     summary: Get team members for the current user
- *     description: Retrieve all employees/users that share at least one entity (project, subproject, or activity) with the authenticated user. Uses hierarchical lookup - if user has access to a project, includes team members from all child subprojects and activities. If user has access to a subproject, includes team members from all child activities. Useful for Program Managers and Sub-Project Managers to see their team.
+ *     summary: Get team members for the current user (paginated with entity filtering)
+ *     description: Retrieve all employees/users that share at least one entity (project, subproject, or activity) with the authenticated user. Uses hierarchical lookup - if user has access to a project, includes team members from all child subprojects and activities. If user has access to a subproject, includes team members from all child activities. Useful for Program Managers and Sub-Project Managers to see their team. Supports pagination and optional entity filtering.
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *           maximum: 100
+ *         description: Number of items per page (max 100)
+ *       - in: query
+ *         name: entityId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Optional - Filter team members by specific entity ID. When filtering by project, includes all child subprojects hierarchically.
+ *       - in: query
+ *         name: entityType
+ *         schema:
+ *           type: string
+ *           enum: [project, subproject, activity]
+ *         description: Optional - Entity type for filtering (required if entityId is provided). Project filter includes child subprojects.
  *     responses:
  *       200:
  *         description: List of team members
@@ -69,8 +95,23 @@ router.get('/',
  *                         $ref: '#/components/schemas/User'
  *                     count:
  *                       type: integer
+ *                       description: Number of team members in current page
+ *                 page:
+ *                   type: integer
+ *                   description: Current page number
+ *                 limit:
+ *                   type: integer
+ *                   description: Items per page
+ *                 totalPages:
+ *                   type: integer
+ *                   description: Total number of pages
+ *                 totalItems:
+ *                   type: integer
+ *                   description: Total number of team members
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
@@ -85,11 +126,37 @@ router.get('/my-team',
  * @swagger
  * /users/my-beneficiaries:
  *   get:
- *     summary: Get beneficiaries for the current user
- *     description: Retrieve all beneficiaries associated with entities (projects or subprojects) that the authenticated user has access to. Uses hierarchical lookup - if user has access to a project, includes beneficiaries from all child subprojects. Returns both encrypted (piiEnc) and decrypted (pii) PII fields. Includes audit logging and cache control headers for security.
+ *     summary: Get beneficiaries for the current user (paginated with entity filtering)
+ *     description: Retrieve all beneficiaries associated with entities (projects or subprojects) that the authenticated user has access to. Uses hierarchical lookup - if user has access to a project, includes beneficiaries from all child subprojects. Returns both encrypted (piiEnc) and decrypted (pii) PII fields. Includes audit logging and cache control headers for security. Supports pagination and optional entity filtering.
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *           maximum: 100
+ *         description: Number of items per page (max 100)
+ *       - in: query
+ *         name: entityId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Optional - Filter beneficiaries by specific entity ID. When filtering by project, includes all child subprojects hierarchically.
+ *       - in: query
+ *         name: entityType
+ *         schema:
+ *           type: string
+ *           enum: [project, subproject]
+ *         description: Optional - Entity type for filtering (required if entityId is provided). Project filter includes child subprojects.
  *     responses:
  *       200:
  *         description: List of beneficiaries with both encrypted and decrypted PII
@@ -148,6 +215,12 @@ router.get('/my-team',
  *                                 type: object
  *                               nationalityEnc:
  *                                 type: object
+ *                               ethnicityEnc:
+ *                                 type: object
+ *                               residenceEnc:
+ *                                 type: object
+ *                               householdMembersEnc:
+ *                                 type: object
  *                               nationalIdEnc:
  *                                 type: object
  *                               phoneEnc:
@@ -172,6 +245,12 @@ router.get('/my-team',
  *                                 type: string
  *                               nationality:
  *                                 type: string
+ *                               ethnicity:
+ *                                 type: string
+ *                               residence:
+ *                                 type: string
+ *                               householdMembers:
+ *                                 type: string
  *                               nationalId:
  *                                 type: string
  *                               phone:
@@ -180,8 +259,23 @@ router.get('/my-team',
  *                                 type: string
  *                     count:
  *                       type: integer
+ *                       description: Number of beneficiaries in current page
+ *                 page:
+ *                   type: integer
+ *                   description: Current page number
+ *                 limit:
+ *                   type: integer
+ *                   description: Items per page
+ *                 totalPages:
+ *                   type: integer
+ *                   description: Total number of pages
+ *                 totalItems:
+ *                   type: integer
+ *                   description: Total number of beneficiaries
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */

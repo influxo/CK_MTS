@@ -378,6 +378,9 @@ router.get(
  *               gender: { type: string, enum: [M, F] }
  *               municipality: { type: string }
  *               nationality: { type: string }
+ *               ethnicity: { type: string }
+ *               residence: { type: string, enum: [Rural, Urban] }
+ *               householdMembers: { type: integer }
  *               status: { type: string, enum: [active, inactive] }
  *               details:
  *                 type: object
@@ -428,6 +431,9 @@ router.post(
  *               gender: { type: string, enum: [M, F] }
  *               municipality: { type: string }
  *               nationality: { type: string }
+ *               ethnicity: { type: string }
+ *               residence: { type: string, enum: [Rural, Urban] }
+ *               householdMembers: { type: integer }
  *               status: { type: string, enum: [active, inactive] }
  *     responses:
  *       200:
