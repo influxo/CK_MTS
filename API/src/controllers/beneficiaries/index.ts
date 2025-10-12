@@ -323,8 +323,17 @@ const create = async (req: Request, res: Response) => {
 
     return res.status(201).json({ success: true, data: created });
   } catch (error: any) {
-    logger.error('Error creating beneficiary', { error: error.message });
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    logger.error('Error creating beneficiary', { 
+      error: error.message, 
+      stack: error.stack,
+      sql: error.sql,
+      original: error.original?.message 
+    });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 

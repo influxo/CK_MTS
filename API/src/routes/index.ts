@@ -13,6 +13,7 @@ import loggerMiddleware from "../middlewares/logger";
 import rolesRouter from "./roles/roles";
 import permissionsRouter from "./permissions/permissions";
 import servicesRouter from "./services/services";
+import syncRouter from "./sync/sync";
 
 const router = Router();
 
@@ -81,5 +82,8 @@ router.use("/permissions", permissionsRouter);
 
 // Services routes
 router.use("/services", servicesRouter);
+
+// Sync routes
+router.use("/sync", syncRouter);
 
 export default router;

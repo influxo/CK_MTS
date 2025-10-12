@@ -1,4 +1,5 @@
 import { Transaction, Op, FindAndCountOptions } from 'sequelize';
+import { v4 as uuidv4 } from 'uuid';
 import { Beneficiary, BeneficiaryMatchKey, BeneficiaryMapping } from '../../models';
 import {
   encryptField,
@@ -167,7 +168,7 @@ export async function upsertFromFormResponse(
       try {
         await BeneficiaryMatchKey.findOrCreate({
           where: { keyType, keyHash },
-          defaults: { id: undefined as unknown as string, beneficiaryId: existingBeneficiaryId, keyType, keyHash },
+          defaults: { id: uuidv4(), beneficiaryId: existingBeneficiaryId, keyType, keyHash },
           transaction: opts.transaction,
         });
       } catch (_) {
@@ -180,6 +181,7 @@ export async function upsertFromFormResponse(
 
   // Create new beneficiary
   const created = await Beneficiary.create({
+    id: uuidv4(),
     pseudonym: makePseudonym(),
     status: 'active',
     firstNameEnc: firstName ? encryptField(firstName) : null,
@@ -198,11 +200,11 @@ export async function upsertFromFormResponse(
   }, { transaction: opts.transaction });
 
   for (const { keyType, keyHash } of candidateKeys) {
-    try {
-      await BeneficiaryMatchKey.create({ beneficiaryId: created.id, keyType, keyHash }, { transaction: opts.transaction });
-    } catch (_) {
-      // ignore unique conflicts
-    }
+    await BeneficiaryMatchKey.findOrCreate({
+      where: { keyType, keyHash },
+      defaults: { id: uuidv4(), beneficiaryId: created.id, keyType, keyHash },
+      transaction: opts.transaction,
+    });
   }
 
   return { beneficiaryId: created.id, created: true };
@@ -211,34 +213,53 @@ export async function upsertFromFormResponse(
 export default {
   upsertFromFormResponse,
   async createBeneficiary(input: BeneficiaryInput, opts: { transaction: Transaction; userId: string }) {
-    const normDob = normalizeDob(input.dob);
-    const normPhone = normalizePhone(input.phone);
-    const created = await Beneficiary.create({
-      pseudonym: makePseudonym(),
-      status: input.status ?? 'active',
-      firstNameEnc: encryptField(input.firstName ?? null),
-      lastNameEnc: encryptField(input.lastName ?? null),
-      dobEnc: encryptField(normDob || null),
-      nationalIdEnc: encryptField(input.nationalId ?? null),
-      phoneEnc: encryptField(normPhone || null),
-      emailEnc: encryptField(input.email ?? null),
-      addressEnc: encryptField(input.address ?? null),
-      genderEnc: encryptField(input.gender ?? null),
-      municipalityEnc: encryptField(input.municipality ?? null),
-      nationalityEnc: encryptField(input.nationality ?? null),
-      ethnicityEnc: encryptField(input.ethnicity ?? null),
-      residenceEnc: encryptField(input.residence ?? null),
-      householdMembersEnc: encryptField(input.householdMembers != null ? String(input.householdMembers) : null),
-    }, { transaction: opts.transaction });
+    try {
+      const normDob = normalizeDob(input.dob);
+      const normPhone = normalizePhone(input.phone);
+      const created = await Beneficiary.create({
+        id: uuidv4(),
+        pseudonym: makePseudonym(),
+        status: input.status ?? 'active',
+        firstNameEnc: encryptField(input.firstName ?? null),
+        lastNameEnc: encryptField(input.lastName ?? null),
+        dobEnc: encryptField(normDob || null),
+        nationalIdEnc: encryptField(input.nationalId ?? null),
+        phoneEnc: encryptField(normPhone || null),
+        emailEnc: encryptField(input.email ?? null),
+        addressEnc: encryptField(input.address ?? null),
+        genderEnc: encryptField(input.gender ?? null),
+        municipalityEnc: encryptField(input.municipality ?? null),
+        nationalityEnc: encryptField(input.nationality ?? null),
+        ethnicityEnc: encryptField(input.ethnicity ?? null),
+        residenceEnc: encryptField(input.residence ?? null),
+        householdMembersEnc: encryptField(input.householdMembers != null ? String(input.householdMembers) : null),
+      }, { transaction: opts.transaction });
 
-    // Create match keys
-    const keys = buildCandidateKeysFromInput({ ...input, dob: normDob, phone: normPhone });
-    for (const { keyType, keyHash } of keys) {
-      try {
-        await BeneficiaryMatchKey.create({ beneficiaryId: created.id, keyType, keyHash }, { transaction: opts.transaction });
-      } catch (_) { /* ignore unique */ }
+      // Create match keys using findOrCreate to avoid unique constraint errors
+      const keys = buildCandidateKeysFromInput({ ...input, dob: normDob, phone: normPhone });
+      for (const { keyType, keyHash } of keys) {
+        try {
+          await BeneficiaryMatchKey.findOrCreate({
+            where: { keyType, keyHash },
+            defaults: { 
+              id: uuidv4(),
+              beneficiaryId: created.id, 
+              keyType, 
+              keyHash 
+            },
+            transaction: opts.transaction
+          });
+        } catch (keyErr: any) { 
+          // Log unexpected errors
+          console.error('Error creating match key:', keyErr.message);
+          throw keyErr;
+        }
+      }
+      return toSafe(created);
+    } catch (err: any) {
+      console.error('Error in createBeneficiary service:', err.message, err.sql);
+      throw err;
     }
-    return toSafe(created);
   },
 
   async updateBeneficiary(id: string, input: BeneficiaryInput, opts: { transaction: Transaction; userId: string }) {
