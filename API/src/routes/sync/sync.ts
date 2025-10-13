@@ -71,4 +71,52 @@ router.post('/push', authenticate, (req: Request, res: Response) => {
   syncController.push(req, res);
 });
 
+/**
+ * @swagger
+ * /sync/full:
+ *   get:
+ *     summary: Download a full RBAC-scoped SQLite snapshot for offline use
+ *     tags: [Sync]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: SQLite file
+ *         content:
+ *           application/octet-stream:
+ *             schema:
+ *               type: string
+ *               format: binary
+ */
+router.get('/full', authenticate, (req: Request, res: Response) => {
+  syncController.full(req, res);
+});
+
+/**
+ * @swagger
+ * /sync/upload:
+ *   post:
+ *     summary: Upload pending offline mutations (create/update/delete)
+ *     tags: [Sync]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               mutations:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       200:
+ *         description: Upload results per mutation
+ */
+router.post('/upload', authenticate, (req: Request, res: Response) => {
+  syncController.upload(req, res);
+});
+
 export default router;

@@ -33,6 +33,9 @@ import { decryptField } from '../../utils/crypto';
 import { ROLES } from '../../constants/roles';
 import validateFormResponse from '../../services/forms/validateFormResponse';
 import beneficiariesService from '../../services/beneficiaries/beneficiariesService';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 const isUuid = (v: any) => typeof v === 'string' && v.length >= 8;
 
@@ -56,7 +59,8 @@ export const pull = async (req: Request, res: Response) => {
     const entities = Array.isArray(req.body?.entities) ? (req.body.entities as string[]) : undefined;
 
     const since = full || !sinceRaw ? undefined : new Date(sinceRaw);
-    const whereUpdated = since ? { updatedAt: { [Op.gte]: since } } : {};
+  const whereUpdated = since ? { updatedAt: { [Op.gte]: since } } : {};
+
 
     const roleNames = await getRoleNames(req);
     const isAdmin = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
@@ -572,4 +576,309 @@ export const push = async (req: Request, res: Response) => {
   return res.status(200).json({ success: true, results });
 };
 
-export default { pull, push };
+export const full = async (req: Request, res: Response) => {
+  try {
+    const roleNames = await getRoleNames(req);
+    const isAdmin = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    const allowedPrograms = (req as any).user && Array.isArray((req as any).user.allowedProgramIds)
+      ? new Set<string>(((req as any).user.allowedProgramIds as any).map(String))
+      : null;
+
+    const projWhere: any = {};
+    if (!isAdmin && allowedPrograms && allowedPrograms.size) {
+      projWhere.id = { [Op.in]: Array.from(allowedPrograms) };
+    }
+
+    const [projects, subprojects, activities] = await Promise.all([
+      Project.findAll({ where: { ...projWhere } }),
+      Subproject.findAll({ where: { ...(allowedPrograms && !isAdmin ? { projectId: { [Op.in]: Array.from(allowedPrograms) } } : {}) } }),
+      (async () => {
+        if (isAdmin || !allowedPrograms || !allowedPrograms.size) return Activity.findAll({});
+        const acts = await Activity.findAll({ include: [{ model: Subproject, as: 'subproject', attributes: ['projectId'] }] }) as any[];
+        return acts.filter((a: any) => allowedPrograms.has(String(a.subproject?.projectId)));
+      })(),
+    ]);
+
+    const projectIds = new Set<string>((projects as any[]).map((p: any) => String(p.id)));
+    const subprojectIds = new Set<string>((subprojects as any[]).map((s: any) => String(s.id)));
+
+    const [users, projectUsers, subprojectUsers, formTemplates, formEntityAssociations, services, serviceAssignments] = await Promise.all([
+      User.findAll({}),
+      ProjectUser.findAll({ where: projectIds.size ? { projectId: { [Op.in]: Array.from(projectIds) } } : {} }),
+      SubprojectUser.findAll({ where: subprojectIds.size ? { subprojectId: { [Op.in]: Array.from(subprojectIds) } } : {} }),
+      FormTemplate.findAll({}),
+      FormEntityAssociation.findAll({}),
+      Service.findAll({}),
+      ServiceAssignment.findAll({}),
+    ]);
+
+    let beneficiariesRaw: any[] = [];
+    if (isAdmin || !allowedPrograms || !allowedPrograms.size) {
+      beneficiariesRaw = await Beneficiary.findAll({}) as any[];
+    } else {
+      const allowedProjIds = Array.from(allowedPrograms);
+      const allowedSubIds = Array.from(new Set((subprojects as any[]).map((s: any) => String(s.id))));
+      const assigns = await BeneficiaryAssignment.findAll({
+        where: {
+          [Op.or]: [
+            { entityType: 'project', entityId: { [Op.in]: allowedProjIds } },
+            ...(allowedSubIds.length ? [{ entityType: 'subproject', entityId: { [Op.in]: allowedSubIds } }] : []),
+          ],
+        } as any,
+        attributes: ['beneficiaryId'],
+      }) as any[];
+      const benIds = Array.from(new Set(assigns.map((a: any) => String(a.get('beneficiaryId')))));
+      beneficiariesRaw = benIds.length ? (await Beneficiary.findAll({ where: { id: { [Op.in]: benIds } } })) as any[] : [];
+    }
+    const beneficiaries = (beneficiariesRaw as any[]).map((b: any) => ({
+      id: String(b.id),
+      pseudonym: b.pseudonym,
+      status: b.status,
+      createdAt: b.get('createdAt'),
+      updatedAt: b.get('updatedAt'),
+      firstNameEnc: b.get('firstNameEnc') ?? null,
+      lastNameEnc: b.get('lastNameEnc') ?? null,
+      dobEnc: b.get('dobEnc') ?? null,
+      genderEnc: b.get('genderEnc') ?? null,
+      addressEnc: b.get('addressEnc') ?? null,
+      municipalityEnc: b.get('municipalityEnc') ?? null,
+      nationalityEnc: b.get('nationalityEnc') ?? null,
+      nationalIdEnc: b.get('nationalIdEnc') ?? null,
+      phoneEnc: b.get('phoneEnc') ?? null,
+      emailEnc: b.get('emailEnc') ?? null,
+      ethnicityEnc: b.get('ethnicityEnc') ?? null,
+      residenceEnc: b.get('residenceEnc') ?? null,
+      householdMembersEnc: b.get('householdMembersEnc') ?? null,
+    }));
+
+    const filePath = path.join(os.tmpdir(), `sync_${uuidv4()}.sqlite`);
+    let BetterSqlite3: any;
+    try {
+      // Lazy require to avoid crashing server if module is not installed yet
+      BetterSqlite3 = require('better-sqlite3');
+    } catch (e: any) {
+      return res.status(501).json({
+        success: false,
+        message: 'SQLite snapshot not available on this server. Missing better-sqlite3 dependency.',
+        hint: 'Install better-sqlite3 and use Node 20/22 LTS for prebuilt binaries.'
+      });
+    }
+    const db = new BetterSqlite3(filePath);
+    try {
+      db.pragma('journal_mode = OFF');
+      db.pragma('synchronous = OFF');
+      db.exec('BEGIN TRANSACTION');
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS projects (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          description TEXT,
+          category TEXT,
+          status TEXT,
+          createdAt TEXT,
+          updatedAt TEXT
+        );
+        CREATE TABLE IF NOT EXISTS subprojects (
+          id TEXT PRIMARY KEY,
+          projectId TEXT,
+          name TEXT,
+          description TEXT,
+          category TEXT,
+          status TEXT,
+          createdAt TEXT,
+          updatedAt TEXT
+        );
+        CREATE TABLE IF NOT EXISTS activities (
+          id TEXT PRIMARY KEY,
+          subprojectId TEXT,
+          name TEXT,
+          description TEXT,
+          category TEXT,
+          frequency TEXT,
+          reportingFields TEXT,
+          status TEXT,
+          createdAt TEXT,
+          updatedAt TEXT
+        );
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          firstName TEXT,
+          lastName TEXT,
+          email TEXT,
+          status TEXT,
+          createdAt TEXT,
+          updatedAt TEXT
+        );
+        CREATE TABLE IF NOT EXISTS project_users (
+          id TEXT PRIMARY KEY,
+          projectId TEXT,
+          userId TEXT,
+          createdAt TEXT,
+          updatedAt TEXT
+        );
+        CREATE TABLE IF NOT EXISTS subproject_users (
+          id TEXT PRIMARY KEY,
+          subprojectId TEXT,
+          userId TEXT,
+          createdAt TEXT,
+          updatedAt TEXT
+        );
+        CREATE TABLE IF NOT EXISTS form_templates (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          schema TEXT,
+          version INTEGER,
+          status TEXT,
+          includeBeneficiaries INTEGER,
+          createdAt TEXT,
+          updatedAt TEXT
+        );
+        CREATE TABLE IF NOT EXISTS form_entity_associations (
+          id TEXT PRIMARY KEY,
+          formTemplateId TEXT,
+          entityId TEXT,
+          entityType TEXT,
+          createdAt TEXT,
+          updatedAt TEXT
+        );
+        CREATE TABLE IF NOT EXISTS services (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          description TEXT,
+          category TEXT,
+          status TEXT,
+          createdAt TEXT,
+          updatedAt TEXT
+        );
+        CREATE TABLE IF NOT EXISTS service_assignments (
+          id TEXT PRIMARY KEY,
+          serviceId TEXT,
+          entityId TEXT,
+          entityType TEXT,
+          createdAt TEXT,
+          updatedAt TEXT
+        );
+        CREATE TABLE IF NOT EXISTS beneficiaries (
+          id TEXT PRIMARY KEY,
+          pseudonym TEXT,
+          status TEXT,
+          createdAt TEXT,
+          updatedAt TEXT,
+          firstNameEnc TEXT,
+          lastNameEnc TEXT,
+          dobEnc TEXT,
+          genderEnc TEXT,
+          addressEnc TEXT,
+          municipalityEnc TEXT,
+          nationalityEnc TEXT,
+          nationalIdEnc TEXT,
+          phoneEnc TEXT,
+          emailEnc TEXT,
+          ethnicityEnc TEXT,
+          residenceEnc TEXT,
+          householdMembersEnc TEXT
+        );
+      `);
+
+      const projStmt = db.prepare('INSERT INTO projects (id, name, description, category, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      for (const p of projects as any[]) {
+        projStmt.run(String((p as any).id), (p as any).name || null, (p as any).description || null, (p as any).category || null, (p as any).status || null, String((p as any).get('createdAt')), String((p as any).get('updatedAt')));
+      }
+
+      const subStmt = db.prepare('INSERT INTO subprojects (id, projectId, name, description, category, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const s of subprojects as any[]) {
+        subStmt.run(String((s as any).id), String((s as any).projectId), (s as any).name || null, (s as any).description || null, (s as any).category || null, (s as any).status || null, String((s as any).get('createdAt')), String((s as any).get('updatedAt')));
+      }
+
+      const actStmt = db.prepare('INSERT INTO activities (id, subprojectId, name, description, category, frequency, reportingFields, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const a of activities as any[]) {
+        actStmt.run(String((a as any).id), String((a as any).subprojectId), (a as any).name || null, (a as any).description || null, (a as any).category || null, (a as any).frequency || null, JSON.stringify((a as any).get ? (a as any).get('reportingFields') : (a as any).reportingFields) || null, (a as any).status || null, String((a as any).get('createdAt')), String((a as any).get('updatedAt')));
+      }
+
+      const userStmt = db.prepare('INSERT INTO users (id, firstName, lastName, email, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      for (const u of users as any[]) {
+        userStmt.run(String((u as any).id), (u as any).firstName || null, (u as any).lastName || null, (u as any).email || null, (u as any).status || null, String((u as any).get('createdAt')), String((u as any).get('updatedAt')));
+      }
+
+      const puStmt = db.prepare('INSERT INTO project_users (id, projectId, userId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)');
+      for (const pu of projectUsers as any[]) {
+        puStmt.run(String((pu as any).id), String((pu as any).projectId), String((pu as any).userId), String((pu as any).get('createdAt')), String((pu as any).get('updatedAt')));
+      }
+
+      const suStmt = db.prepare('INSERT INTO subproject_users (id, subprojectId, userId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)');
+      for (const su of subprojectUsers as any[]) {
+        suStmt.run(String((su as any).id), String((su as any).subprojectId), String((su as any).userId), String((su as any).get('createdAt')), String((su as any).get('updatedAt')));
+      }
+
+      const ftStmt = db.prepare('INSERT INTO form_templates (id, name, schema, version, status, includeBeneficiaries, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const ft of formTemplates as any[]) {
+        ftStmt.run(String((ft as any).id), (ft as any).name || null, JSON.stringify((ft as any).get('schema')) || null, Number((ft as any).version ?? 1), (ft as any).status || null, (ft as any).includeBeneficiaries ? 1 : 0, String((ft as any).get('createdAt')), String((ft as any).get('updatedAt')));
+      }
+
+      const feaStmt = db.prepare('INSERT INTO form_entity_associations (id, formTemplateId, entityId, entityType, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)');
+      for (const fea of formEntityAssociations as any[]) {
+        feaStmt.run(String((fea as any).id), String((fea as any).formTemplateId), String((fea as any).entityId), String((fea as any).entityType), String((fea as any).get('createdAt')), String((fea as any).get('updatedAt')));
+      }
+
+      const svcStmt = db.prepare('INSERT INTO services (id, name, description, category, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      for (const s of services as any[]) {
+        svcStmt.run(String((s as any).id), (s as any).name || null, (s as any).description || null, (s as any).category || null, (s as any).status || null, String((s as any).get('createdAt')), String((s as any).get('updatedAt')));
+      }
+
+      const saStmt = db.prepare('INSERT INTO service_assignments (id, serviceId, entityId, entityType, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)');
+      for (const sa of serviceAssignments as any[]) {
+        saStmt.run(String((sa as any).id), String((sa as any).serviceId), String((sa as any).entityId), String((sa as any).entityType), String((sa as any).get('createdAt')), String((sa as any).get('updatedAt')));
+      }
+
+      const benStmt = db.prepare('INSERT INTO beneficiaries (id, pseudonym, status, createdAt, updatedAt, firstNameEnc, lastNameEnc, dobEnc, genderEnc, addressEnc, municipalityEnc, nationalityEnc, nationalIdEnc, phoneEnc, emailEnc, ethnicityEnc, residenceEnc, householdMembersEnc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const b of beneficiaries as any[]) {
+        benStmt.run(
+          b.id, b.pseudonym || null, b.status || null, String(b.createdAt), String(b.updatedAt),
+          b.firstNameEnc ? JSON.stringify(b.firstNameEnc) : null,
+          b.lastNameEnc ? JSON.stringify(b.lastNameEnc) : null,
+          b.dobEnc ? JSON.stringify(b.dobEnc) : null,
+          b.genderEnc ? JSON.stringify(b.genderEnc) : null,
+          b.addressEnc ? JSON.stringify(b.addressEnc) : null,
+          b.municipalityEnc ? JSON.stringify(b.municipalityEnc) : null,
+          b.nationalityEnc ? JSON.stringify(b.nationalityEnc) : null,
+          b.nationalIdEnc ? JSON.stringify(b.nationalIdEnc) : null,
+          b.phoneEnc ? JSON.stringify(b.phoneEnc) : null,
+          b.emailEnc ? JSON.stringify(b.emailEnc) : null,
+          b.ethnicityEnc ? JSON.stringify(b.ethnicityEnc) : null,
+          b.residenceEnc ? JSON.stringify(b.residenceEnc) : null,
+          b.householdMembersEnc ? JSON.stringify(b.householdMembersEnc) : null
+        );
+      }
+
+      db.exec('COMMIT');
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch {}
+      throw e;
+    } finally {
+      db.close();
+    }
+
+    const buffer = fs.readFileSync(filePath);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="sync_${new Date().toISOString().replace(/[:.]/g, '-')}.sqlite"`);
+    res.status(200).send(buffer);
+    fs.unlink(filePath, () => {});
+  } catch (error: any) {
+    console.error('SYNC full error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: error?.message });
+  }
+};
+
+export const upload = async (req: Request, res: Response) => {
+  try {
+    const mutations = Array.isArray((req.body as any)?.mutations) ? (req.body as any).mutations : [];
+    (req as any).body = { changes: mutations };
+    return push(req, res);
+  } catch (error: any) {
+    console.error('SYNC upload error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: error?.message });
+  }
+};
+
+export default { pull, push, full, upload };
