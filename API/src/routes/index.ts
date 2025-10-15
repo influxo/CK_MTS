@@ -14,6 +14,7 @@ import rolesRouter from "./roles/roles";
 import permissionsRouter from "./permissions/permissions";
 import servicesRouter from "./services/services";
 import syncRouter from "./sync/sync";
+import syncServiceRouter from "./syncService";
 
 const router = Router();
 
@@ -85,5 +86,8 @@ router.use("/services", servicesRouter);
 
 // Sync routes
 router.use("/sync", syncRouter);
+
+// Sync Service routes (for Flutter offline functionality)
+router.use("/sync", syncServiceRouter);
 
 export default router;
