@@ -379,6 +379,11 @@ Each form template includes a `storageMapping` object that tells the backend how
 - **Request**: JSON body `{ surveys: SurveyResponse[] }`
 - **Response**: JSON with per-survey results and manifest confirmations
 
+Important constraints:
+- No database/schema changes are introduced by this spec.
+- Only the two endpoints are modified: `GET /sync/datadump` and `POST /sync/uploads`.
+- Location is persisted exactly as the web app does: `latitude` and `longitude` are stored on the `form_responses` record. Service deliveries do not store location.
+
 ### Request body
 ```json
 {
@@ -451,7 +456,7 @@ The `/sync/uploads` endpoint processes schemaless Flutter survey data by:
 5. **Process Each Survey**:
    - **Create Beneficiary** (if needed): Extract PII fields from survey responses using `storageMapping.beneficiaryFields` and create beneficiary
    - **Assign Beneficiary to Entities**: Insert into `beneficiary_assignments` table to link beneficiary to project/subproject
-   - **Create Form Response**: Insert into `form_responses` table with the complete raw survey data in the `data` JSONB field
+   - **Create Form Response**: Insert into `form_responses` table with the complete raw survey data in the `data` JSONB field. Persist `latitude` and `longitude` from `metadata.location` and `submittedAt` from `metadata.timestamp`.
    - **Create Service Deliveries**: Extract service information using `storageMapping.serviceMapping` and create service delivery records
 6. **Generate Manifest**: Creates a unique manifest ID for tracking
 

@@ -137,6 +137,57 @@ export async function dataDump(req: Request, res: Response) {
       activities.forEach(a => accessibleActivityIds.add(String(a.id)));
     }
 
+    // Check if user has any assigned projects, subprojects, or forms
+    const hasAssignedProjects = isAdmin || (allowedPrograms && allowedPrograms.size > 0);
+    const hasAssignedSubprojects = accessibleSubprojectIds.size > 0;
+    const hasAssignedActivities = accessibleActivityIds.size > 0;
+    
+    // Check if user has any form templates assigned
+    let hasAssignedForms = false;
+    if (isAdmin) {
+      const formCount = await FormTemplate.count({ where: { status: 'active' } });
+      hasAssignedForms = formCount > 0;
+    } else if (allowedPrograms && allowedPrograms.size > 0) {
+      // Check if user has access to any form templates through entity associations
+      const formEntityAssocs = await FormEntityAssociation.findAll({
+        where: {
+          [Op.or]: [
+            { entityType: 'project', entityId: { [Op.in]: Array.from(allowedPrograms) } },
+            { entityType: 'subproject', entityId: { [Op.in]: Array.from(accessibleSubprojectIds) } },
+            { entityType: 'activity', entityId: { [Op.in]: Array.from(accessibleActivityIds) } }
+          ]
+        },
+        attributes: ['formTemplateId']
+      });
+      hasAssignedForms = formEntityAssocs.length > 0;
+    }
+    
+    // If user has no assignments, return appropriate message
+    if (!hasAssignedProjects && !hasAssignedSubprojects && !hasAssignedActivities && !hasAssignedForms) {
+      return res.status(200).json({
+        meta: {
+          schemaVersion: 2,
+          generatedAt: new Date().toISOString(),
+          userId: user.id,
+          roleNames,
+          isAdmin,
+          allowedPrograms: allowedPrograms ? Array.from(allowedPrograms) : null,
+          accessibleBeneficiaries: 0,
+          totalBeneficiaries: 0,
+          piiAccessPolicy: isAdmin ? 'full' : 'project-scoped'
+        },
+        message: "No projects, subprojects, activities, or forms have been assigned to this user. Please contact your administrator to get access to the system.",
+        projects: [],
+        subprojects: [],
+        activities: [],
+        form_templates: [],
+        services: [],
+        beneficiaries: [],
+        form_responses: [],
+        service_deliveries: []
+      });
+    }
+
     // Fetch only essential data that the user actually needs
     const [projects, subprojects, activities, formTemplates, services, beneficiaries] = await Promise.all([
       // Core entities - only user's accessible projects
@@ -360,58 +411,102 @@ export async function dataDump(req: Request, res: Response) {
     // Build association-aware form_templates for this user's scope
     const augmentedFormTemplates = [] as any[];
     for (const ft of (formTemplates as any[])) {
-      // Find entity association for this template within user's accessible scope
-      const feaWhere: any = { formTemplateId: ft.id };
-      const feaOptions: any = { where: { formTemplateId: ft.id } };
-      const feaList = await FormEntityAssociation.findAll({ where: { formTemplateId: ft.id } });
+      // Find entity associations for this specific template within user's accessible scope
+      const feaList = await FormEntityAssociation.findAll({ 
+        where: isAdmin ? { formTemplateId: ft.id } : {
+          formTemplateId: ft.id,
+          [Op.or]: [
+            { entityType: 'project', entityId: { [Op.in]: Array.from(allowedPrograms || []) } },
+            { entityType: 'subproject', entityId: { [Op.in]: Array.from(accessibleSubprojectIds) } },
+            { entityType: 'activity', entityId: { [Op.in]: Array.from(accessibleActivityIds) } }
+          ]
+        }
+      });
 
       // Prefer subproject association within scope, else project association within scope
       let associatedSubprojectId: string | null = null;
       let associatedProjectId: string | null = null;
+      
       for (const fea of feaList as any[]) {
         if (fea.entityType === 'subproject') {
           const idStr = String(fea.entityId);
-          if (!allowedPrograms || isAdmin || accessibleSubprojectIds.has(idStr)) {
+          if (isAdmin || accessibleSubprojectIds.has(idStr)) {
             associatedSubprojectId = idStr;
             break;
           }
         }
       }
+      
       if (!associatedSubprojectId) {
         for (const fea of feaList as any[]) {
           if (fea.entityType === 'project') {
             const idStr = String(fea.entityId);
-            if (!allowedPrograms || isAdmin || (allowedPrograms as Set<string>).has(idStr)) {
+            if (isAdmin || (allowedPrograms && allowedPrograms.has(idStr))) {
               associatedProjectId = idStr;
               break;
             }
           }
         }
       }
+      
+      console.log(`Form ${ft.id} (${ft.name}): Entity associations - subproject: ${associatedSubprojectId || 'none'}, project: ${associatedProjectId || 'none'}`);
 
-      // Derive services and beneficiaries for the associated entity
-      const associationEntityId = associatedSubprojectId || associatedProjectId;
-      const associationEntityType = associatedSubprojectId ? 'subproject' : (associatedProjectId ? 'project' : null);
-
+      // Get services and beneficiaries specifically for this form template
       let assocServiceIds: string[] = [];
       let assocBeneficiaryIds: string[] = [];
+      
+      // Only include beneficiaries if the form template is configured to include them
+      if (ft.includeBeneficiaries) {
+        // Get beneficiaries from the associated entity
+        const associationEntityId = associatedSubprojectId || associatedProjectId;
+        const associationEntityType = associatedSubprojectId ? 'subproject' : (associatedProjectId ? 'project' : null);
+        
+        if (associationEntityId && associationEntityType) {
+          const benAssigns = await BeneficiaryAssignment.findAll({ 
+            where: { 
+              entityId: associationEntityId, 
+              entityType: associationEntityType 
+            }, 
+            attributes: ['beneficiaryId'] 
+          });
+          assocBeneficiaryIds = (benAssigns as any[]).map(ba => String(ba.beneficiaryId));
+        }
+        
+        console.log(`Form ${ft.id} (${ft.name}): includeBeneficiaries=true, found ${assocBeneficiaryIds.length} beneficiaries`);
+      } else {
+        console.log(`Form ${ft.id} (${ft.name}): includeBeneficiaries=false, no beneficiaries included`);
+      }
+      
+      // Get services from the associated entity
+      const associationEntityId = associatedSubprojectId || associatedProjectId;
+      const associationEntityType = associatedSubprojectId ? 'subproject' : (associatedProjectId ? 'project' : null);
+      
       if (associationEntityId && associationEntityType) {
-        const [svcAssigns, benAssigns] = await Promise.all([
-          ServiceAssignment.findAll({ where: { entityId: associationEntityId, entityType: associationEntityType }, attributes: ['serviceId'] }),
-          BeneficiaryAssignment.findAll({ where: { entityId: associationEntityId, entityType: associationEntityType }, attributes: ['beneficiaryId'] })
-        ]);
+        const svcAssigns = await ServiceAssignment.findAll({ 
+          where: { 
+            entityId: associationEntityId, 
+            entityType: associationEntityType 
+          }, 
+          attributes: ['serviceId'] 
+        });
         assocServiceIds = (svcAssigns as any[]).map(sa => String(sa.serviceId));
-        assocBeneficiaryIds = (benAssigns as any[]).map(ba => String(ba.beneficiaryId));
+        console.log(`Form ${ft.id} (${ft.name}): Found ${assocServiceIds.length} services for ${associationEntityType} ${associationEntityId}`);
+      } else {
+        console.log(`Form ${ft.id} (${ft.name}): No entity association found, no services assigned`);
       }
 
+      const formAssociations = {
+        subprojectId: associatedSubprojectId || undefined,
+        projectId: associatedProjectId || undefined,
+        serviceIds: assocServiceIds,
+        beneficiaryIds: assocBeneficiaryIds
+      };
+      
+      console.log(`Form ${ft.id} (${ft.name}) final associations:`, JSON.stringify(formAssociations, null, 2));
+      
       augmentedFormTemplates.push({
         ...ft,
-        associations: {
-          subprojectId: associatedSubprojectId || undefined,
-          projectId: associatedProjectId || undefined,
-          serviceIds: assocServiceIds,
-          beneficiaryIds: assocBeneficiaryIds
-        }
+        associations: formAssociations
       });
     }
 
@@ -525,6 +620,25 @@ export async function upload(req: Request, res: Response) {
     const { surveys } = req.body;
     const user = req.user;
 
+    // Comprehensive logging of upload payload
+    console.log('=== UPLOAD REQUEST START ===');
+    console.log('User:', {
+      id: user?.id,
+      email: user?.email,
+      firstName: user?.firstName,
+      lastName: user?.lastName
+    });
+    console.log('Full Request Body:', JSON.stringify(req.body, null, 2));
+    console.log('Surveys Count:', surveys?.length || 0);
+    console.log('Request Headers:', {
+      'content-type': req.headers['content-type'],
+      'authorization': req.headers['authorization'] ? 'Bearer [REDACTED]' : 'None',
+      'user-agent': req.headers['user-agent']
+    });
+    console.log('Request IP:', req.ip);
+    console.log('Request Timestamp:', new Date().toISOString());
+    console.log('=== UPLOAD REQUEST END ===');
+
     if (!surveys || !Array.isArray(surveys)) {
       return res.status(400).json({ 
         status: "error",
@@ -538,6 +652,11 @@ export async function upload(req: Request, res: Response) {
 
     for (const survey of surveys) {
       try {
+        // Log each individual survey
+        console.log('--- PROCESSING SURVEY ---');
+        console.log('Survey Index:', surveys.indexOf(survey));
+        console.log('Survey Data:', JSON.stringify(survey, null, 2));
+        
         const {
           clientRequestId,
           projectId,
@@ -549,6 +668,18 @@ export async function upload(req: Request, res: Response) {
           answers = {},
           metadata = {}
         } = survey;
+
+        // Log parsed survey components
+        console.log('Parsed Survey Components:');
+        console.log('- clientRequestId:', clientRequestId);
+        console.log('- projectId:', projectId);
+        console.log('- subprojectId:', subprojectId);
+        console.log('- formId:', formId);
+        console.log('- beneficiaryId (legacy):', beneficiaryId);
+        console.log('- beneficiaryIds (array):', beneficiaryIdsArr);
+        console.log('- serviceIds:', serviceIds);
+        console.log('- answers:', JSON.stringify(answers, null, 2));
+        console.log('- metadata:', JSON.stringify(metadata, null, 2));
 
         // Validate required fields (subprojectId optional; fallback to project)
         if (!clientRequestId || !projectId || !formId) {
@@ -694,29 +825,42 @@ export async function upload(req: Request, res: Response) {
           }
 
           // 4. Create Form Response
-          const formResponse = await FormResponse.create({
+          const formResponseData = {
             id: uuidv4(),
             formTemplateId: formId,
             entityId: subprojectId || projectId,
             entityType: subprojectId ? 'subproject' : 'project',
-              submittedBy: user.id,
+            submittedBy: user.id,
             beneficiaryId: finalBeneficiaryId,
             data: validation.data || answers, // Use sanitized data
             latitude: metadata.location?.lat || null,
             longitude: metadata.location?.lng || null,
-            submittedAt: new Date(metadata.timestamp || new Date())
-          }, { transaction });
+            createdAt: new Date(metadata.submittedAt || metadata.timestamp || new Date())
+          };
+          
+          console.log('Creating Form Response with data:', JSON.stringify(formResponseData, null, 2));
+          const formResponse = await FormResponse.create(formResponseData, { transaction });
+          console.log('Form Response created with ID:', formResponse.id);
 
           // 5. Create Service Deliveries
           const serviceDeliveries = [];
           const serviceDetails = new Map(); // Store service details for manifest
           
+          console.log('Processing Service Deliveries for serviceIds:', serviceIds);
           for (const serviceId of serviceIds) {
+            console.log('Processing serviceId:', serviceId);
+            
             // Validate service exists and is assigned to this subproject
             const service = await Service.findByPk(serviceId, { transaction });
             if (!service) {
               throw new Error(`Service not found: ${serviceId}`);
             }
+            console.log('Service found:', {
+              id: service.id,
+              name: service.name,
+              description: service.description,
+              category: service.category
+            });
 
             // Store service details for manifest
             serviceDetails.set(serviceId, {
@@ -739,7 +883,7 @@ export async function upload(req: Request, res: Response) {
               throw new Error(`Service ${serviceId} not assigned to subproject ${subprojectId}`);
             }
 
-            const serviceDelivery = await ServiceDelivery.create({
+            const serviceDeliveryData = {
               id: uuidv4(),
               serviceId,
               beneficiaryId: finalBeneficiaryId,
@@ -747,14 +891,19 @@ export async function upload(req: Request, res: Response) {
               entityType: 'subproject',
               formResponseId: formResponse.id,
               staffUserId: user.id,
-              deliveredAt: new Date(metadata.timestamp || new Date()),
-              notes: `Offline survey submission - ${metadata.deviceId || 'unknown device'}`
-            }, { transaction });
+              deliveredAt: new Date(metadata.submittedAt || metadata.timestamp || new Date()),
+              notes: `Offline survey submission - ${metadata.deviceId || metadata.deviceInfo || 'unknown device'}`
+            };
+            
+            console.log('Creating Service Delivery with data:', JSON.stringify(serviceDeliveryData, null, 2));
+            const serviceDelivery = await ServiceDelivery.create(serviceDeliveryData, { transaction });
+            console.log('Service Delivery created with ID:', serviceDelivery.id);
 
             serviceDeliveries.push(serviceDelivery);
           }
 
           await transaction.commit();
+          console.log('Transaction committed successfully for survey:', clientRequestId);
 
           // Collect comprehensive manifest data for this survey
           const manifestEntry = {
@@ -855,9 +1004,18 @@ export async function upload(req: Request, res: Response) {
     }
 
 
+    // Log final processing results
+    console.log('=== UPLOAD PROCESSING COMPLETE ===');
+    console.log('Total surveys processed:', surveys.length);
+    console.log('Results:', JSON.stringify(results, null, 2));
+    console.log('Manifest data entries:', manifestData.length);
+
     // Generate comprehensive manifest summary
     const successfulSurveys = results.filter(r => r.status === "applied");
     const failedSurveys = results.filter(r => r.status === "error");
+    
+    console.log('Successful surveys:', successfulSurveys.length);
+    console.log('Failed surveys:', failedSurveys.length);
     
     // Collect unique forms, services, and beneficiaries from successful surveys
     const uniqueForms = new Map();
@@ -961,8 +1119,19 @@ export async function upload(req: Request, res: Response) {
       results
     });
 
+    // Log final response
+    console.log('=== UPLOAD RESPONSE ===');
+    console.log('Response status: 200 OK');
+    console.log('Manifest ID:', manifestId);
+    console.log('Total results:', results.length);
+    console.log('=== UPLOAD COMPLETE ===');
+
   } catch (err) {
+    console.error("=== UPLOAD ERROR ===");
     console.error("Upload error:", err);
+    console.error("Error stack:", err instanceof Error ? err.stack : 'No stack trace');
+    console.error("=== UPLOAD ERROR END ===");
+    
     res.status(500).json({ 
       status: "error",
       message: err instanceof Error ? err.message : "Unknown error" 
