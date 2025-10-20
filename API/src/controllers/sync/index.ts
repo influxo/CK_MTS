@@ -78,10 +78,18 @@ export const pull = async (req: Request, res: Response) => {
       projWhere.id = { [Op.in]: Array.from(allowedPrograms) };
     }
 
-    // Service deliveries (scope by allowed programs)
+    // Service deliveries (scope by allowed programs) - Enhanced for offline functionality
     let serviceDeliveries: any[] = [];
     if (include('serviceDeliveries')) {
-      const rows = await ServiceDelivery.findAll({ where: { ...whereUpdated } });
+      // Include service deliveries with related data for better offline experience
+      const rows = await ServiceDelivery.findAll({ 
+        where: { ...whereUpdated },
+        include: [
+          { model: Service, as: 'service', attributes: ['id', 'name', 'description', 'category'] },
+          { model: User, as: 'staffUser', attributes: ['id', 'firstName', 'lastName', 'email'] },
+          { model: Beneficiary, as: 'beneficiary', attributes: ['id', 'pseudonym', 'status'] }
+        ]
+      });
       if (isAdmin || !allowedPrograms || !allowedPrograms.size) {
         serviceDeliveries = rows as any[];
       } else {
@@ -129,10 +137,17 @@ export const pull = async (req: Request, res: Response) => {
     const beneficiaryMappings = include('beneficiaryMappings') ? await BeneficiaryMapping.findAll({ where: { ...whereUpdated } }) : [];
     const beneficiaryMatchKeys = include('beneficiaryMatchKeys') ? await BeneficiaryMatchKey.findAll({ where: { ...whereUpdated } }) : [];
 
-    // Form responses (scope by allowed programs)
+    // Form responses (scope by allowed programs) - Enhanced for offline functionality
     let formResponses: any[] = [];
     if (include('formResponses')) {
-      const rows = await FormResponse.findAll({ where: { ...whereUpdated } });
+      // Include form responses with related data for better offline experience
+      const rows = await FormResponse.findAll({ 
+        where: { ...whereUpdated },
+        include: [
+          { model: FormTemplate, as: 'formTemplate', attributes: ['id', 'name', 'schema', 'version'] },
+          { model: User, as: 'submittedBy', attributes: ['id', 'firstName', 'lastName', 'email'] }
+        ]
+      });
       if (isAdmin || !allowedPrograms || !allowedPrograms.size) {
         formResponses = rows as any[];
       } else {
@@ -881,4 +896,125 @@ export const upload = async (req: Request, res: Response) => {
   }
 };
 
-export default { pull, push, full, upload };
+// New endpoint for entity-specific sync (e.g., subproject page)
+export const entitySync = async (req: Request, res: Response) => {
+  try {
+    const { entityType, entityId } = req.params;
+    const sinceRaw = req.body?.since as string | undefined;
+    const full = Boolean(req.body?.full);
+
+    if (!['project', 'subproject', 'activity'].includes(entityType)) {
+      return res.status(400).json({ success: false, message: 'Invalid entity type. Must be project, subproject, or activity' });
+    }
+
+    const since = full || !sinceRaw ? undefined : new Date(sinceRaw);
+    const whereUpdated = since ? { updatedAt: { [Op.gte]: since } } : {};
+
+    const roleNames = await getRoleNames(req);
+    const isAdmin = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
+
+    // Get the specific entity and its related data
+    let entity: any = null;
+    let relatedEntities: any = {};
+
+    if (entityType === 'subproject') {
+      entity = await Subproject.findByPk(entityId, {
+        include: [
+          { model: Project, as: 'project', attributes: ['id', 'name', 'description', 'category', 'status'] },
+          { model: Activity, as: 'activities', attributes: ['id', 'name', 'description', 'category', 'frequency', 'reportingFields', 'status'] },
+          { model: User, as: 'members', attributes: ['id', 'firstName', 'lastName', 'email', 'status'] }
+        ]
+      });
+
+      if (entity) {
+        // Get all form responses for this subproject and its activities
+        const activityIds = entity.activities?.map((a: any) => a.id) || [];
+        const formResponses = await FormResponse.findAll({
+          where: {
+            [Op.or]: [
+              { entityType: 'subproject', entityId: entityId },
+              { entityType: 'activity', entityId: { [Op.in]: activityIds } }
+            ],
+            ...whereUpdated
+          },
+          include: [
+            { model: FormTemplate, as: 'formTemplate', attributes: ['id', 'name', 'schema', 'version'] },
+            { model: User, as: 'submittedBy', attributes: ['id', 'firstName', 'lastName', 'email'] }
+          ]
+        });
+
+        // Get all service deliveries for this subproject and its activities
+        const serviceDeliveries = await ServiceDelivery.findAll({
+          where: {
+            [Op.or]: [
+              { entityType: 'subproject', entityId: entityId },
+              { entityType: 'activity', entityId: { [Op.in]: activityIds } }
+            ],
+            ...whereUpdated
+          },
+          include: [
+            { model: Service, as: 'service', attributes: ['id', 'name', 'description', 'category'] },
+            { model: User, as: 'staffUser', attributes: ['id', 'firstName', 'lastName', 'email'] },
+            { model: Beneficiary, as: 'beneficiary', attributes: ['id', 'pseudonym', 'status'] }
+          ]
+        });
+
+        // Get beneficiaries associated with this subproject
+        const beneficiaryAssignments = await BeneficiaryAssignment.findAll({
+          where: { entityType: 'subproject', entityId: entityId },
+          include: [
+            { model: Beneficiary, as: 'beneficiary', attributes: ['id', 'pseudonym', 'status'] }
+          ]
+        });
+
+        // Get form templates associated with this subproject
+        const formEntityAssociations = await FormEntityAssociation.findAll({
+          where: {
+            [Op.or]: [
+              { entityType: 'subproject', entityId: entityId },
+              { entityType: 'activity', entityId: { [Op.in]: activityIds } }
+            ]
+          },
+          include: [
+            { model: FormTemplate, as: 'formTemplate', attributes: ['id', 'name', 'schema', 'version', 'status'] }
+          ]
+        });
+
+        // Get services assigned to this subproject
+        const serviceAssignments = await ServiceAssignment.findAll({
+          where: { entityType: 'subproject', entityId: entityId },
+          include: [
+            { model: Service, as: 'service', attributes: ['id', 'name', 'description', 'category', 'status'] }
+          ]
+        });
+
+        relatedEntities = {
+          formResponses,
+          serviceDeliveries,
+          beneficiaryAssignments,
+          formEntityAssociations,
+          serviceAssignments
+        };
+      }
+    }
+
+    if (!entity) {
+      return res.status(404).json({ success: false, message: `${entityType} not found` });
+    }
+
+    return res.status(200).json({
+      success: true,
+      snapshotId: uuidv4(),
+      serverTime: new Date().toISOString(),
+      entityType,
+      entityId,
+      entity,
+      relatedEntities
+    });
+  } catch (error: any) {
+    console.error('SYNC entity sync error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: error?.message });
+  }
+};
+
+export default { pull, push, full, upload, entitySync };
