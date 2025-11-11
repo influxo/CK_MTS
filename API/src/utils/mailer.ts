@@ -56,3 +56,51 @@ export const sendInvitationEmail = async ({
     text,
   });
 };
+
+export const sendPasswordResetEmail = async ({
+  email,
+  resetLink,
+}: {
+  email: string;
+  resetLink: string;
+}) => {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family: sans-serif; background-color: #f9fafb; padding: 20px;">
+        <table style="max-width: 600px; margin: auto; background: #ffffff; border-radius: 8px; padding: 20px;">
+          <tr>
+            <td>
+              <h2 style="margin-bottom: 10px;">Reset your password</h2>
+              <p style="font-size: 14px; margin-bottom: 15px;">Click the button below to reset your password.</p>
+              <div style="text-align: center; margin-bottom: 20px;">
+                <a href="${resetLink}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #2563eb; color: #fff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-size: 14px; cursor: pointer;">Reset Password</a>
+              </div>
+              <p style="font-size: 12px; color: #6b7280;">If the button above doesn't work, copy and paste this link into your browser:</p>
+              <p style="font-size: 12px; color: #6b7280; word-break: break-all;">
+                <a href="${resetLink}" target="_blank" rel="noopener noreferrer">${resetLink}</a>
+              </p>
+              <p style="font-size: 12px; color: #9ca3af;">If you did not request this, you can ignore this email.</p>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>`;
+
+  const text = [
+    `Reset your password`,
+    ``,
+    `Use this link to reset your password:`,
+    resetLink,
+    ``,
+    `If you did not request this, you can ignore this email.`,
+  ].join('\n');
+
+  await transporter.sendMail({
+    from: `"CaritasMotherTeresa" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: "Reset your password",
+    html,
+    text,
+  });
+};

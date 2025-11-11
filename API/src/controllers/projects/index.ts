@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { Project } from "../../models";
+import { Project, AuditLog } from "../../models";
 import { v4 as uuidv4 } from "uuid";
 import { Op } from "sequelize";
 import assignmentsController from "../assignments/assignments";
@@ -91,6 +91,16 @@ export const createProject = async (req: Request, res: Response) => {
     });
 
     logger.info('Project created successfully', { projectId: project.id });
+
+    // Write human-readable audit log
+    const actor = (req as any).user;
+    const actorName = actor ? `${actor.firstName || ''} ${actor.lastName || ''}`.trim() || actor.email || actor.id : 'System';
+    await AuditLog.create({
+      userId: actor?.id || 'system',
+      action: 'PROJECT_CREATED',
+      description: `${actorName} created a new project named "${name}"`,
+      details: JSON.stringify({ projectId: project.id, name, category, status: project.status })
+    });
     return res.status(201).json({
       success: true,
       message: "Project created successfully",
@@ -148,6 +158,16 @@ export const updateProject = async (req: Request, res: Response) => {
     await project.update(updateData);
 
     logger.info('Project updated successfully', { projectId: id });
+
+    // Human-readable audit log
+    const actor = (req as any).user;
+    const actorName = actor ? `${actor.firstName || ''} ${actor.lastName || ''}`.trim() || actor.email || actor.id : 'System';
+    await AuditLog.create({
+      userId: actor?.id || 'system',
+      action: 'PROJECT_UPDATED',
+      description: `${actorName} updated project "${project.name}"`,
+      details: JSON.stringify({ projectId: id, fields: Object.keys(updateData) })
+    });
     return res.status(200).json({
       success: true,
       message: "Project updated successfully",
@@ -185,6 +205,16 @@ export const deleteProject = async (req: Request, res: Response) => {
     await project.destroy();
 
     logger.info('Project deleted successfully', { projectId: id });
+
+    // Human-readable audit log
+    const actor = (req as any).user;
+    const actorName = actor ? `${actor.firstName || ''} ${actor.lastName || ''}`.trim() || actor.email || actor.id : 'System';
+    await AuditLog.create({
+      userId: actor?.id || 'system',
+      action: 'PROJECT_DELETED',
+      description: `${actorName} deleted project "${project.name}"`,
+      details: JSON.stringify({ projectId: id })
+    });
     return res.status(200).json({
       success: true,
       message: "Project deleted successfully",

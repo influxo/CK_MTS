@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { Subproject, Project } from "../../models";
+import { Subproject, Project, AuditLog } from "../../models";
 import { v4 as uuidv4 } from "uuid";
 import assignmentsController from "../assignments/assignments";
 
@@ -126,6 +126,16 @@ export const createSubproject = async (req: Request, res: Response) => {
       projectId,
     });
 
+    // Audit
+    const actor = (req as any).user;
+    const actorName = actor ? `${actor.firstName || ''} ${actor.lastName || ''}`.trim() || actor.email || actor.id : 'System';
+    await AuditLog.create({
+      userId: actor?.id || 'system',
+      action: 'SUBPROJECT_CREATED',
+      description: `${actorName} created a new subproject named "${name}"`,
+      details: JSON.stringify({ subprojectId: subproject.id, name, projectId })
+    });
+
     return res.status(201).json({
       success: true,
       message: "Subproject created successfully",
@@ -177,6 +187,16 @@ export const updateSubproject = async (req: Request, res: Response) => {
 
     await subproject.update(updateData);
 
+    // Audit
+    const actor = (req as any).user;
+    const actorName = actor ? `${actor.firstName || ''} ${actor.lastName || ''}`.trim() || actor.email || actor.id : 'System';
+    await AuditLog.create({
+      userId: actor?.id || 'system',
+      action: 'SUBPROJECT_UPDATED',
+      description: `${actorName} updated subproject "${subproject.name}"`,
+      details: JSON.stringify({ subprojectId: subproject.id, fields: Object.keys(updateData) })
+    });
+
     return res.status(200).json({
       success: true,
       message: "Subproject updated successfully",
@@ -209,6 +229,16 @@ export const deleteSubproject = async (req: Request, res: Response) => {
 
     // Delete subproject
     await subproject.destroy();
+
+    // Audit
+    const actor = (req as any).user;
+    const actorName = actor ? `${actor.firstName || ''} ${actor.lastName || ''}`.trim() || actor.email || actor.id : 'System';
+    await AuditLog.create({
+      userId: actor?.id || 'system',
+      action: 'SUBPROJECT_DELETED',
+      description: `${actorName} deleted subproject "${subproject.name}"`,
+      details: JSON.stringify({ subprojectId: id })
+    });
 
     return res.status(200).json({
       success: true,

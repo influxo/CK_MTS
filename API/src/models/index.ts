@@ -13,6 +13,7 @@ import ActivityUser from "./ActivityUser";
 import FormTemplate from "./FormTemplate";
 import FormResponse from "./FormResponse";
 import AuditLog from "./AuditLog";
+import MfaTempToken from "./MfaTempToken";
 import FormField from "./FormField";
 import Kpi from "./Kpi";
 import Beneficiary from "./Beneficiary";
@@ -286,6 +287,7 @@ export {
   FormTemplate,
   FormResponse,
   AuditLog,
+  MfaTempToken,
   FormField,
   Kpi,
   Beneficiary,

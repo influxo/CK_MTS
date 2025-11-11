@@ -4,6 +4,7 @@ import { healthController } from "../controllers/health";
 import usersRouter from "./userRoutes/users";
 import authRouter from "./auth/auth";
 import logsRouter from "./logs/logs";
+import auditLogsRouter from "./auditLogs/auditLogs";
 import projectsRouter from "./projects/projects";
 import subprojectsRouter from "./projects/subprojects";
 import activitiesRouter from "./projects/activities";
@@ -15,6 +16,7 @@ import permissionsRouter from "./permissions/permissions";
 import servicesRouter from "./services/services";
 import syncRouter from "./sync/sync";
 import syncServiceRouter from "./syncService";
+import dashboardRouter from "./dashboard/dashboard";
 
 const router = Router();
 
@@ -60,6 +62,9 @@ router.use("/users", usersRouter);
 // Logs routes
 router.use("/logs", logsRouter);
 
+// Audit Logs routes
+router.use("/audit-logs", auditLogsRouter);
+
 // Projects routes
 router.use("/projects", projectsRouter);
 
@@ -89,5 +94,8 @@ router.use("/sync", syncRouter);
 
 // Sync Service routes (for Flutter offline functionality)
 router.use("/sync", syncServiceRouter);
+
+// Dashboard routes
+router.use("/dashboard", dashboardRouter);
 
 export default router;

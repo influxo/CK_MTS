@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Op } from 'sequelize';
 import Log from '../../models/Log';
+import User from '../../models/User';
 
 /**
  * Get all logs with optional filtering
@@ -55,13 +56,31 @@ export const getLogs = async (req: Request, res: Response): Promise<void> => {
       offset
     });
     
+    // Enrich logs with user display name and human-readable message
+    const userIds = Array.from(new Set(logs.map((l: any) => l.userId).filter(Boolean)));
+    const users = userIds.length > 0 ? await User.findAll({ where: { id: { [Op.in]: userIds } }, attributes: ['id', 'firstName', 'lastName', 'email'] }) : [];
+    const userMap = new Map(users.map((u: any) => [u.id, u]));
+
+    const enriched = logs.map((l: any) => {
+      const u = l.userId ? userMap.get(l.userId) : null;
+      const displayName = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || u.id : 'Anonymous';
+      const resourcePath = (l.url || '').split('?')[0];
+      const message = `${displayName} ${l.method} ${resourcePath} → ${l.status}`;
+      return {
+        ...l.toJSON(),
+        userDisplayName: displayName,
+        resource: resourcePath,
+        message,
+      };
+    });
+
     // Calculate total pages
     const totalPages = Math.ceil(count / Number(limit));
     
     res.status(200).json({
       success: true,
       data: {
-        logs,
+        logs: enriched,
         pagination: {
           total: count,
           page: Number(page),
