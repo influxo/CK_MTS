@@ -825,6 +825,11 @@ export async function upload(req: Request, res: Response) {
           }
 
           // 4. Create Form Response
+          // Extract location and timestamp from metadata
+          const submissionTimestamp = metadata.submittedAt || metadata.timestamp || new Date();
+          const latitude = metadata.location?.lat || null;
+          const longitude = metadata.location?.lng || null;
+          
           const formResponseData = {
             id: uuidv4(),
             formTemplateId: formId,
@@ -833,9 +838,9 @@ export async function upload(req: Request, res: Response) {
             submittedBy: user.id,
             beneficiaryId: finalBeneficiaryId,
             data: validation.data || answers, // Use sanitized data
-            latitude: metadata.location?.lat || null,
-            longitude: metadata.location?.lng || null,
-            createdAt: new Date(metadata.submittedAt || metadata.timestamp || new Date())
+            latitude: latitude, // Store latitude from metadata.location.lat
+            longitude: longitude, // Store longitude from metadata.location.lng
+            submittedAt: new Date(submissionTimestamp) // Use client's submission timestamp
           };
           
           console.log('Creating Form Response with data:', JSON.stringify(formResponseData, null, 2));
@@ -870,28 +875,32 @@ export async function upload(req: Request, res: Response) {
               category: service.category
             });
 
+            // Find service assignment for the appropriate entity (subproject or project)
+            const entityId = subprojectId || projectId;
+            const entityType = subprojectId ? 'subproject' : 'project';
+            
             const serviceAssignment = await ServiceAssignment.findOne({
               where: {
                 serviceId,
-                entityId: subprojectId,
-                entityType: 'subproject'
+                entityId: entityId,
+                entityType: entityType
               },
               transaction
             });
 
             if (!serviceAssignment) {
-              throw new Error(`Service ${serviceId} not assigned to subproject ${subprojectId}`);
+              throw new Error(`Service ${serviceId} not assigned to ${entityType} ${entityId}`);
             }
 
             const serviceDeliveryData = {
               id: uuidv4(),
               serviceId,
               beneficiaryId: finalBeneficiaryId,
-              entityId: subprojectId,
-              entityType: 'subproject',
+              entityId: subprojectId || projectId, // Use subprojectId if available, otherwise projectId
+              entityType: subprojectId ? 'subproject' : 'project', // Match entityType with entityId
               formResponseId: formResponse.id,
               staffUserId: user.id,
-              deliveredAt: new Date(metadata.submittedAt || metadata.timestamp || new Date()),
+              deliveredAt: new Date(submissionTimestamp), // Use same timestamp as form submission
               notes: `Offline survey submission - ${metadata.deviceId || metadata.deviceInfo || 'unknown device'}`
             };
             
