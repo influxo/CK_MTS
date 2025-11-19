@@ -152,7 +152,7 @@ async function createDefaultUsers(roles: { [key: string]: Role }) {
       firstName: 'Super',
       lastName: 'Admin',
       email: 'superadmin@example.com',
-      password: 'Password123!',
+      password: 'Hello!@#1',
       status: 'active',
       emailVerified: true,
       role: ROLES.SUPER_ADMIN
