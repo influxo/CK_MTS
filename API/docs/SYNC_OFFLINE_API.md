@@ -251,8 +251,8 @@ The response contains a hierarchical JSON structure with all user-accessible dat
         "members_count": 4,
         "water_source": "well"
       },
-      "latitude": 42.3,
-      "longitude": 21.1,
+      "latitude": 42.662,
+      "longitude": 21.164
       "submittedAt": "2025-10-15T09:00:00Z",
       "template": {
         "id": "f-123",
@@ -382,7 +382,7 @@ Each form template includes a `storageMapping` object that tells the backend how
 Important constraints:
 - No database/schema changes are introduced by this spec.
 - Only the two endpoints are modified: `GET /sync/datadump` and `POST /sync/uploads`.
-- Location is persisted exactly as the web app does: `latitude` and `longitude` are stored on the `form_responses` record. Service deliveries do not store location.
+- Location is persisted exactly as the web app does: `latitude` and `longitude` are stored on the `form_responses` record (DECIMAL(9,6), ~0.1m accuracy, suitable for 2-3 meter accuracy requirements). Service deliveries do not store location.
 
 ### Request body
 ```json
@@ -403,7 +403,7 @@ Important constraints:
       "metadata": {
         "deviceId": "android-xyz",
         "appVersion": "1.3.0",
-        "location": { "lat": 42.3, "lng": 21.1 },
+        "location": { "lat": 42.662, "lng": 21.164 }
         "timestamp": "2025-10-15T09:00:00Z"
       }
     },
@@ -422,7 +422,7 @@ Important constraints:
       "metadata": {
         "deviceId": "android-xyz",
         "appVersion": "1.3.0",
-        "location": { "lat": 42.31, "lng": 21.11 },
+        "location": { "lat": 42.663, "lng": 21.165 },
         "timestamp": "2025-10-15T09:15:00Z"
       }
     }
@@ -566,8 +566,8 @@ The `/sync/uploads` endpoint processes schemaless Flutter survey data by:
     "members_count": 5,
     "water_source": "well"
   },
-  "latitude": 42.3,
-  "longitude": 21.1,
+  "latitude": 42.662,
+  "longitude": 21.164,
   "submittedAt": "2025-10-15T09:00:00Z",
   "createdAt": "2025-10-15T09:00:00Z",
   "updatedAt": "2025-10-15T09:00:00Z"

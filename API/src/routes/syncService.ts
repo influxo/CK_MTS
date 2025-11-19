@@ -327,7 +327,12 @@ router.get('/datadump', authenticate, dataDump);
  *                       description: ID of the form template used for this survey
  *                     beneficiaryId:
  *                       type: string
- *                       description: Optional ID of the beneficiary this survey is about
+ *                       description: Optional ID of the beneficiary this survey is about (legacy field, use beneficiaryIds array instead)
+ *                     beneficiaryIds:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       description: Optional array of beneficiary IDs this survey is about (preferred over beneficiaryId)
  *                     serviceIds:
  *                       type: array
  *                       items:
@@ -346,14 +351,24 @@ router.get('/datadump', authenticate, dataDump);
  *                           type: string
  *                         location:
  *                           type: object
+ *                           description: GPS coordinates for the survey submission. Values are stored as latitude/longitude in the database.
  *                           properties:
  *                             lat:
  *                               type: number
+ *                               description: Latitude coordinate (stored as 'latitude' field, DECIMAL(9,6), ~0.1m accuracy)
+ *                               example: 42.662
  *                             lng:
  *                               type: number
+ *                               description: Longitude coordinate (stored as 'longitude' field, DECIMAL(9,6), ~0.1m accuracy)
+ *                               example: 21.164
+ *                         submittedAt:
+ *                           type: string
+ *                           format: date-time
+ *                           description: Submission timestamp (preferred over timestamp). Used for form_responses.submittedAt field.
  *                         timestamp:
  *                           type: string
  *                           format: date-time
+ *                           description: Fallback timestamp if submittedAt is not provided. Used for form_responses.submittedAt field.
  *             example:
  *               surveys:
  *                 - clientRequestId: "local-uuid-123"
@@ -369,7 +384,10 @@ router.get('/datadump', authenticate, dataDump);
  *                   metadata:
  *                     deviceId: "android-xyz"
  *                     appVersion: "1.3.0"
- *                     location: { lat: 42.3, lng: 21.1 }
+ *                     location: 
+ *                       lat: 42.662
+ *                       lng: 21.164
+ *                     submittedAt: "2025-10-15T09:00:00Z"
  *                     timestamp: "2025-10-15T09:00:00Z"
  *     responses:
  *       200:
