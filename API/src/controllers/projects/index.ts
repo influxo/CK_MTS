@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { Op } from "sequelize";
 import assignmentsController from "../assignments/assignments";
 import { createLogger } from "../../utils/logger";
+import { CITY_VALUES } from "../../constants/cities";
 
 // Create a logger instance for this module
 const logger = createLogger('projects-controller');
@@ -14,7 +15,11 @@ const logger = createLogger('projects-controller');
 export const getAllProjects = async (req: Request, res: Response) => {
   logger.info('Getting all projects');
   try {
-    const projects = await Project.findAll();
+    const { city } = req.query;
+    const where: any = {};
+    if (city) where.city = city;
+
+    const projects = await Project.findAll({ where });
 
     logger.info('Successfully retrieved all projects', { count: projects.length });
     return res.status(200).json({
@@ -69,7 +74,7 @@ export const createProject = async (req: Request, res: Response) => {
   logger.info('Creating new project', { projectName: req.body.name });
   
   try {
-    const { name, description, category, status } = req.body;
+    const { name, description, category, city, status } = req.body;
 
     // Validate required fields
     if (!name) {
@@ -80,6 +85,15 @@ export const createProject = async (req: Request, res: Response) => {
       });
     }
 
+    // Validate city if provided
+    if (city && !CITY_VALUES.includes(city)) {
+      logger.warn('Invalid city provided for project creation', { city });
+      return res.status(400).json({
+        success: false,
+        message: `Invalid city. Must be one of: ${CITY_VALUES.join(', ')}`,
+      });
+    }
+
     // Create project
     logger.info('Creating project record', { name, category });
     const project = await Project.create({
@@ -87,6 +101,7 @@ export const createProject = async (req: Request, res: Response) => {
       name,
       description,
       category,
+      city,
       status: status || "active",
     });
 
@@ -124,7 +139,7 @@ export const updateProject = async (req: Request, res: Response) => {
   logger.info('Updating project', { projectId: id });
   
   try {
-    const { name, description, category, status } = req.body;
+    const { name, description, category, city, status } = req.body;
 
     // Find project
     const project = await Project.findByPk(id);
@@ -142,6 +157,16 @@ export const updateProject = async (req: Request, res: Response) => {
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
     if (category !== undefined) updateData.category = category;
+    if (city !== undefined) {
+      if (city !== null && !CITY_VALUES.includes(city)) {
+        logger.warn('Invalid city provided for project update', { projectId: id, city });
+        return res.status(400).json({
+          success: false,
+          message: `Invalid city. Must be one of: ${CITY_VALUES.join(', ')}`,
+        });
+      }
+      updateData.city = city;
+    }
     if (status !== undefined) {
       // Validate status
       if (!["active", "inactive"].includes(status)) {

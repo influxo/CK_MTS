@@ -2,13 +2,18 @@ import { Request, Response } from "express";
 import { Subproject, Project, AuditLog } from "../../models";
 import { v4 as uuidv4 } from "uuid";
 import assignmentsController from "../assignments/assignments";
+import { CITY_VALUES } from "../../constants/cities";
 
 /**
  * Get all subprojects
  */
 export const getAllSubprojects = async (req: Request, res: Response) => {
   try {
-    const subprojects = await Subproject.findAll();
+    const { city } = req.query;
+    const where: any = {};
+    if (city) where.city = city;
+
+    const subprojects = await Subproject.findAll({ where });
 
     return res.status(200).json({
       success: true,
@@ -68,8 +73,12 @@ export const getSubprojectsByProjectId = async (req: Request, res: Response) => 
       });
     }
 
+    const { city } = req.query;
+    const where: any = { projectId };
+    if (city) where.city = city;
+
     const subprojects = await Subproject.findAll({
-      where: { projectId },
+      where,
     });
 
     return res.status(200).json({
@@ -90,7 +99,7 @@ export const getSubprojectsByProjectId = async (req: Request, res: Response) => 
  */
 export const createSubproject = async (req: Request, res: Response) => {
   try {
-    const { name, description, category, status, projectId } = req.body;
+    const { name, description, category, city, status, projectId } = req.body;
 
     // Validate required fields
     if (!name) {
@@ -116,12 +125,21 @@ export const createSubproject = async (req: Request, res: Response) => {
       });
     }
 
+    // Validate city if provided
+    if (city && !CITY_VALUES.includes(city)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid city. Must be one of: ${CITY_VALUES.join(', ')}`,
+      });
+    }
+
     // Create subproject
     const subproject = await Subproject.create({
       id: uuidv4(),
       name,
       description,
       category,
+      city,
       status: status || "active",
       projectId,
     });
@@ -157,7 +175,7 @@ export const createSubproject = async (req: Request, res: Response) => {
 export const updateSubproject = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, description, category, status } = req.body;
+    const { name, description, category, city, status } = req.body;
 
     // Find subproject
     const subproject = await Subproject.findByPk(id);
@@ -174,6 +192,15 @@ export const updateSubproject = async (req: Request, res: Response) => {
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
     if (category !== undefined) updateData.category = category;
+    if (city !== undefined) {
+      if (city !== null && !CITY_VALUES.includes(city)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid city. Must be one of: ${CITY_VALUES.join(', ')}`,
+        });
+      }
+      updateData.city = city;
+    }
     if (status !== undefined) {
       // Validate status
       if (!["active", "inactive"].includes(status)) {

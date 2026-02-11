@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import User from "./User";
 import Project from "./Project";
 import Activity from "./Activity";
+import { CITY_VALUES } from "../constants/cities";
 
 class Subproject extends Model {
   // Define attributes
@@ -11,6 +12,7 @@ class Subproject extends Model {
   public name!: string;
   public description!: string;
   public category!: string;
+  public city!: string;
   public status!: string; // 'active', 'inactive'
   public projectId!: string; // Foreign key to parent Project
 
@@ -49,6 +51,13 @@ Subproject.init(
     category: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    city: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      validate: {
+        isIn: [CITY_VALUES],
+      },
     },
     status: {
       type: DataTypes.STRING,

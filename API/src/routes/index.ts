@@ -17,6 +17,7 @@ import servicesRouter from "./services/services";
 import syncRouter from "./sync/sync";
 import syncServiceRouter from "./syncService";
 import dashboardRouter from "./dashboard/dashboard";
+import constantsRouter from "./constants/constants";
 
 const router = Router();
 
@@ -97,5 +98,8 @@ router.use("/sync", syncServiceRouter);
 
 // Dashboard routes
 router.use("/dashboard", dashboardRouter);
+
+// Constants routes
+router.use("/constants", constantsRouter);
 
 export default router;

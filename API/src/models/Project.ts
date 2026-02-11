@@ -2,6 +2,7 @@ import { Model, DataTypes, HasManyGetAssociationsMixin, HasManyAddAssociationMix
 import sequelize from "../db/connection";
 import { v4 as uuidv4 } from "uuid";
 import User from "./User";
+import { CITY_VALUES } from "../constants/cities";
 
 class Project extends Model {
   // Define attributes
@@ -9,6 +10,7 @@ class Project extends Model {
   public name!: string;
   public description!: string;
   public category!: string;
+  public city!: string;
   public status!: string; // 'active', 'inactive'
 
   // Timestamps
@@ -40,6 +42,13 @@ Project.init(
     category: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    city: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      validate: {
+        isIn: [CITY_VALUES],
+      },
     },
     status: {
       type: DataTypes.STRING,

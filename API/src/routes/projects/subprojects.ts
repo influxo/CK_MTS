@@ -31,6 +31,10 @@ router.use(loggerMiddleware);
  *         category:
  *           type: string
  *           description: Subproject category
+ *         city:
+ *           type: string
+ *           enum: [Prishtina, Prizren, Gjilan, Ferizaj, Fushë Kosova, Mitrovicë, Gjakovë, Peja, Vushtrri, Podujeva, Rahovec, Lipjan, Suharekë, Kaçanik, Skenderaj, Obiliq, Shtime, Drenas, Viti, Klinë, Istog, Kamenicë, Graçanicë, Malishevë, Deçan, Shtërpcë, Dragash]
+ *           description: Subproject city
  *         status:
  *           type: string
  *           enum: [active, inactive]
@@ -52,6 +56,7 @@ router.use(loggerMiddleware);
  *         name: Food Distribution Subproject
  *         description: A subproject to distribute food to the needy
  *         category: Food Aid
+ *         city: Prishtina
  *         status: active
  *         projectId: 550e8400-e29b-41d4-a716-446655440001
  *         createdAt: '2023-01-01T17:32:28Z'
@@ -64,6 +69,14 @@ router.use(loggerMiddleware);
  *   get:
  *     summary: Get all subprojects
  *     tags: [Subprojects]
+ *     parameters:
+ *       - in: query
+ *         name: city
+ *         schema:
+ *           type: string
+ *           enum: [Prishtina, Prizren, Gjilan, Ferizaj, Fushë Kosova, Mitrovicë, Gjakovë, Peja, Vushtrri, Podujeva, Rahovec, Lipjan, Suharekë, Kaçanik, Skenderaj, Obiliq, Shtime, Drenas, Viti, Klinë, Istog, Kamenicë, Graçanicë, Malishevë, Deçan, Shtërpcë, Dragash]
+ *         required: false
+ *         description: Filter subprojects by city
  *     responses:
  *       200:
  *         description: List of all subprojects
@@ -130,6 +143,13 @@ router.get("/:id", authenticate, (req: Request, res: Response): void => {
  *           type: string
  *         required: true
  *         description: The project ID
+ *       - in: query
+ *         name: city
+ *         schema:
+ *           type: string
+ *           enum: [Prishtina, Prizren, Gjilan, Ferizaj, Fushë Kosova, Mitrovicë, Gjakovë, Peja, Vushtrri, Podujeva, Rahovec, Lipjan, Suharekë, Kaçanik, Skenderaj, Obiliq, Shtime, Drenas, Viti, Klinë, Istog, Kamenicë, Graçanicë, Malishevë, Deçan, Shtërpcë, Dragash]
+ *         required: false
+ *         description: Filter subprojects by city
  *     responses:
  *       200:
  *         description: List of subprojects for the project
@@ -179,6 +199,9 @@ router.get(
  *                 type: string
  *               category:
  *                 type: string
+ *               city:
+ *                 type: string
+ *                 enum: [Prishtina, Prizren, Gjilan, Ferizaj, Fushë Kosova, Mitrovicë, Gjakovë, Peja, Vushtrri, Podujeva, Rahovec, Lipjan, Suharekë, Kaçanik, Skenderaj, Obiliq, Shtime, Drenas, Viti, Klinë, Istog, Kamenicë, Graçanicë, Malishevë, Deçan, Shtërpcë, Dragash]
  *               status:
  *                 type: string
  *                 enum: [active, inactive]
@@ -239,6 +262,9 @@ router.post(
  *                 type: string
  *               category:
  *                 type: string
+ *               city:
+ *                 type: string
+ *                 enum: [Prishtina, Prizren, Gjilan, Ferizaj, Fushë Kosova, Mitrovicë, Gjakovë, Peja, Vushtrri, Podujeva, Rahovec, Lipjan, Suharekë, Kaçanik, Skenderaj, Obiliq, Shtime, Drenas, Viti, Klinë, Istog, Kamenicë, Graçanicë, Malishevë, Deçan, Shtërpcë, Dragash]
  *               status:
  *                 type: string
  *                 enum: [active, inactive]

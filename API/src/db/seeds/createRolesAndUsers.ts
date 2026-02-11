@@ -156,6 +156,42 @@ async function createDefaultUsers(roles: { [key: string]: Role }) {
       status: 'active',
       emailVerified: true,
       role: ROLES.SUPER_ADMIN
+    },
+    {
+      firstName: 'System',
+      lastName: 'Administrator',
+      email: 'sysadmin@example.com',
+      password: 'Hello!@#1',
+      status: 'active',
+      emailVerified: true,
+      role: ROLES.SYSTEM_ADMINISTRATOR
+    },
+    {
+      firstName: 'Program',
+      lastName: 'Manager',
+      email: 'program@example.com',
+      password: 'Hello!@#1',
+      status: 'active',
+      emailVerified: true,
+      role: ROLES.PROGRAM_MANAGER
+    },
+    {
+      firstName: 'Subproject',
+      lastName: 'Manager',
+      email: 'subproject@example.com',
+      password: 'Hello!@#1',
+      status: 'active',
+      emailVerified: true,
+      role: ROLES.SUB_PROJECT_MANAGER
+    },
+    {
+      firstName: 'Field',
+      lastName: 'Operator',
+      email: 'field@example.com',
+      password: 'Hello!@#1',
+      status: 'active',
+      emailVerified: true,
+      role: ROLES.FIELD_OPERATOR
     }
   ];
   

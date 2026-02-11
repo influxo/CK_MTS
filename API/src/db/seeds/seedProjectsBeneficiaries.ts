@@ -14,6 +14,7 @@ import {
 } from '../../models';
 import FormEntityAssociation from '../../models/FormEntityAssociation';
 import { upsertFromFormResponse } from '../../services/beneficiaries/beneficiariesService';
+import { CITY_VALUES } from '../../constants/cities';
 
 // Simple random helpers (no external deps)
 const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -82,6 +83,7 @@ export async function seedProjectsBeneficiaries() {
         name: PROJECT_NAMES[p],
         description: `${PROJECT_NAMES[p]} program`,
         category: PROJECT_NAMES[p].split(' ')[0],
+        city: pick(CITY_VALUES as unknown as string[]),
         status: 'active',
       }, { transaction });
 
@@ -93,6 +95,7 @@ export async function seedProjectsBeneficiaries() {
           name: `${theme} - ${project.name} ${s + 1}`,
           description: `${theme} subproject under ${project.name}`,
           category: theme,
+          city: pick(CITY_VALUES as unknown as string[]),
           status: 'active',
           projectId: project.id,
         }, { transaction });
@@ -270,5 +273,7 @@ export async function seedProjectsBeneficiaries() {
     console.log('Expanded seed completed: projects, subprojects, activities, services, template, mappings, ~800 submissions.');
   });
 }
+
+seedProjectsBeneficiaries();
 
 export default { seedProjectsBeneficiaries };
