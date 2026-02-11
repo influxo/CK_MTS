@@ -12,6 +12,8 @@ class Project extends Model {
   public category!: string;
   public city!: string;
   public status!: string; // 'active', 'inactive'
+  public isArchived!: boolean; // For soft delete/archiving
+  public archivedAt!: Date | null; // When the record was archived
 
   // Timestamps
   public readonly createdAt!: Date;
@@ -57,6 +59,15 @@ Project.init(
       validate: {
         isIn: [["active", "inactive"]],
       },
+    },
+    isArchived: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    archivedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     createdAt: {
       type: DataTypes.DATE,

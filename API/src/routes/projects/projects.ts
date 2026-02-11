@@ -71,6 +71,12 @@ router.use(loggerMiddleware);
  *           enum: [Prishtina, Prizren, Gjilan, Ferizaj, Fushë Kosova, Mitrovicë, Gjakovë, Peja, Vushtrri, Podujeva, Rahovec, Lipjan, Suharekë, Kaçanik, Skenderaj, Obiliq, Shtime, Drenas, Viti, Klinë, Istog, Kamenicë, Graçanicë, Malishevë, Deçan, Shtërpcë, Dragash]
  *         required: false
  *         description: Filter projects by city
+ *       - in: query
+ *         name: includeArchived
+ *         schema:
+ *           type: boolean
+ *         required: false
+ *         description: Include archived projects in results
  *     responses:
  *       200:
  *         description: List of all projects
@@ -245,7 +251,8 @@ router.put(
  * @swagger
  * /projects/{id}:
  *   delete:
- *     summary: Delete a project
+ *     summary: Archive a project
+ *     description: Archives a project instead of permanently deleting it. Archived projects are hidden by default but can be retrieved with includeArchived=true.
  *     tags: [Projects]
  *     parameters:
  *       - in: path
@@ -256,7 +263,7 @@ router.put(
  *         description: The project ID
  *     responses:
  *       200:
- *         description: Project deleted successfully
+ *         description: Project archived successfully
  *         content:
  *           application/json:
  *             schema:
@@ -267,7 +274,9 @@ router.put(
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Project deleted successfully
+ *                   example: Project archived successfully
+ *       400:
+ *         description: Project already archived
  *       404:
  *         description: Project not found
  */

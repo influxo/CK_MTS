@@ -15,13 +15,14 @@ const logger = createLogger('projects-controller');
 export const getAllProjects = async (req: Request, res: Response) => {
   logger.info('Getting all projects');
   try {
-    const { city } = req.query;
-    const where: any = {};
+    const { city, includeArchived } = req.query;
+    const where: any = {
+      isArchived: includeArchived === 'true' ? { [Op.in]: [true, false] } : false,
+    };
     if (city) where.city = city;
 
     const projects = await Project.findAll({ where });
-
-    logger.info('Successfully retrieved all projects', { count: projects.length });
+    logger.info(`Found ${projects.length} projects`);
     return res.status(200).json({
       success: true,
       data: projects,
@@ -208,44 +209,56 @@ export const updateProject = async (req: Request, res: Response) => {
 };
 
 /**
- * Delete a project
+ * Archive a project (soft delete)
  */
 export const deleteProject = async (req: Request, res: Response) => {
   const { id } = req.params;
-  logger.info('Deleting project', { projectId: id });
+  logger.info('Archiving project', { projectId: id });
   
   try {
     // Find project
     const project = await Project.findByPk(id);
     if (!project) {
-      logger.warn('Project not found for deletion', { projectId: id });
+      logger.warn('Project not found for archiving', { projectId: id });
       return res.status(404).json({
         success: false,
         message: "Project not found",
       });
     }
 
-    // Delete project
-    logger.info('Deleting project record', { projectId: id });
-    await project.destroy();
+    // Check if already archived
+    if (project.isArchived) {
+      logger.warn('Project already archived', { projectId: id });
+      return res.status(400).json({
+        success: false,
+        message: "Project is already archived",
+      });
+    }
 
-    logger.info('Project deleted successfully', { projectId: id });
+    // Archive project
+    logger.info('Archiving project record', { projectId: id });
+    await project.update({
+      isArchived: true,
+      archivedAt: new Date(),
+    });
+
+    logger.info('Project archived successfully', { projectId: id });
 
     // Human-readable audit log
     const actor = (req as any).user;
     const actorName = actor ? `${actor.firstName || ''} ${actor.lastName || ''}`.trim() || actor.email || actor.id : 'System';
     await AuditLog.create({
       userId: actor?.id || 'system',
-      action: 'PROJECT_DELETED',
-      description: `${actorName} deleted project "${project.name}"`,
+      action: 'PROJECT_ARCHIVED',
+      description: `${actorName} archived project "${project.name}"`,
       details: JSON.stringify({ projectId: id })
     });
     return res.status(200).json({
       success: true,
-      message: "Project deleted successfully",
+      message: "Project archived successfully",
     });
   } catch (error) {
-    logger.error(`Error deleting project with ID: ${id}`, error);
+    logger.error(`Error archiving project with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",

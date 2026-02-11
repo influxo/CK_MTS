@@ -77,6 +77,12 @@ router.use(loggerMiddleware);
  *           enum: [Prishtina, Prizren, Gjilan, Ferizaj, Fushë Kosova, Mitrovicë, Gjakovë, Peja, Vushtrri, Podujeva, Rahovec, Lipjan, Suharekë, Kaçanik, Skenderaj, Obiliq, Shtime, Drenas, Viti, Klinë, Istog, Kamenicë, Graçanicë, Malishevë, Deçan, Shtërpcë, Dragash]
  *         required: false
  *         description: Filter subprojects by city
+ *       - in: query
+ *         name: includeArchived
+ *         schema:
+ *           type: boolean
+ *         required: false
+ *         description: Include archived subprojects in results
  *     responses:
  *       200:
  *         description: List of all subprojects
@@ -150,6 +156,12 @@ router.get("/:id", authenticate, (req: Request, res: Response): void => {
  *           enum: [Prishtina, Prizren, Gjilan, Ferizaj, Fushë Kosova, Mitrovicë, Gjakovë, Peja, Vushtrri, Podujeva, Rahovec, Lipjan, Suharekë, Kaçanik, Skenderaj, Obiliq, Shtime, Drenas, Viti, Klinë, Istog, Kamenicë, Graçanicë, Malishevë, Deçan, Shtërpcë, Dragash]
  *         required: false
  *         description: Filter subprojects by city
+ *       - in: query
+ *         name: includeArchived
+ *         schema:
+ *           type: boolean
+ *         required: false
+ *         description: Include archived subprojects in results
  *     responses:
  *       200:
  *         description: List of subprojects for the project
@@ -300,7 +312,8 @@ router.put(
  * @swagger
  * /subprojects/{id}:
  *   delete:
- *     summary: Delete a subproject
+ *     summary: Archive a subproject
+ *     description: Archives a subproject instead of permanently deleting it. Archived subprojects are hidden by default but can be retrieved with includeArchived=true.
  *     tags: [Subprojects]
  *     parameters:
  *       - in: path
@@ -311,7 +324,7 @@ router.put(
  *         description: The subproject ID
  *     responses:
  *       200:
- *         description: Subproject deleted successfully
+ *         description: Subproject archived successfully
  *         content:
  *           application/json:
  *             schema:
@@ -322,7 +335,9 @@ router.put(
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Subproject deleted successfully
+ *                   example: Subproject archived successfully
+ *       400:
+ *         description: Subproject already archived
  *       404:
  *         description: Subproject not found
  */

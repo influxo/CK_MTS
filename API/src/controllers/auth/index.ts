@@ -74,6 +74,15 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
+    // Check if user is archived
+    if (user.isArchived) {
+      logger.warn('Login attempt with archived account', { email });
+      return res.status(403).json({ 
+        success: false,
+        message: 'Account does not exist. Please contact administrator.' 
+      });
+    }
+
     // Check if email is verified
     if (!user.emailVerified) {
       logger.warn('Login attempt with unverified email', { email });

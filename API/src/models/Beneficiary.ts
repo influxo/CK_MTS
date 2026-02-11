@@ -9,6 +9,8 @@ class Beneficiary extends Model {
   public id!: string;
   public pseudonym!: string;
   public status!: 'active' | 'inactive';
+  public isArchived!: boolean; // For soft delete/archiving
+  public archivedAt!: Date | null; // When the record was archived
 
   // PII fields
   public firstNameEnc?: any | null;     
@@ -46,6 +48,15 @@ Beneficiary.init(
       allowNull: false,
       defaultValue: 'active',
       validate: { isIn: [['active', 'inactive']] },
+    },
+    isArchived: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    archivedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
 
     firstNameEnc:     { type: DataTypes.JSONB, allowNull: true },

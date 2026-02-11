@@ -18,6 +18,13 @@ router.use(loggerMiddleware);
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: includeArchived
+ *         schema:
+ *           type: boolean
+ *         required: false
+ *         description: Include archived users in results
  *     responses:
  *       200:
  *         description: A list of users
@@ -526,8 +533,8 @@ router.put('/:id',
  * @swagger
  * /users/{id}:
  *   delete:
- *     summary: Delete a user
- *     description: Delete a user by ID. Accessible only by system administrators.
+ *     summary: Archive a user
+ *     description: Archives a user instead of permanently deleting them. Archived users are hidden by default but can be retrieved with includeArchived=true.
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -540,7 +547,9 @@ router.put('/:id',
  *         description: User ID
  *     responses:
  *       200:
- *         description: User deleted successfully
+ *         description: User archived successfully
+ *       400:
+ *         description: User already archived
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       403:
@@ -676,6 +685,131 @@ router.post('/invite',
   // authorize(['System Administrator']), 
   (req: Request, res: Response): void => {
     usersController.inviteUser(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /users/{id}/roles:
+ *   put:
+ *     summary: Update a user's roles
+ *     description: Replace all roles for a user. Restricted to Super Admin and System Administrator only.
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - roleIds
+ *             properties:
+ *               roleIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uuid
+ *                 description: Array of role UUIDs to assign to the user
+ *     responses:
+ *       200:
+ *         description: User roles updated successfully
+ *       400:
+ *         description: Invalid roleIds or no valid roles found
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.put('/:id/roles',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  (req: Request, res: Response): void => {
+    usersController.updateUserRoles(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /users/{id}/permissions:
+ *   get:
+ *     summary: Get a user's effective permissions
+ *     description: Returns all permissions derived from the user's assigned roles. Restricted to Super Admin and System Administrator only.
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID
+ *     responses:
+ *       200:
+ *         description: User permissions retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     userId:
+ *                       type: string
+ *                     roles:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                     permissions:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           resource:
+ *                             type: string
+ *                           action:
+ *                             type: string
+ *                           description:
+ *                             type: string
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/:id/permissions',
+  authenticate,
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  (req: Request, res: Response): void => {
+    usersController.getUserPermissions(req, res);
   }
 );
 

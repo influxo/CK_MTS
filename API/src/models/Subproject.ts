@@ -14,6 +14,8 @@ class Subproject extends Model {
   public category!: string;
   public city!: string;
   public status!: string; // 'active', 'inactive'
+  public isArchived!: boolean; // For soft delete/archiving
+  public archivedAt!: Date | null; // When the record was archived
   public projectId!: string; // Foreign key to parent Project
 
   // Timestamps
@@ -66,6 +68,15 @@ Subproject.init(
       validate: {
         isIn: [["active", "inactive"]],
       },
+    },
+    isArchived: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    archivedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     projectId: {
       type: DataTypes.UUID,

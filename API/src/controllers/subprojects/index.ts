@@ -3,14 +3,17 @@ import { Subproject, Project, AuditLog } from "../../models";
 import { v4 as uuidv4 } from "uuid";
 import assignmentsController from "../assignments/assignments";
 import { CITY_VALUES } from "../../constants/cities";
+import { Op } from "sequelize";
 
 /**
  * Get all subprojects
  */
 export const getAllSubprojects = async (req: Request, res: Response) => {
   try {
-    const { city } = req.query;
-    const where: any = {};
+    const { city, includeArchived } = req.query;
+    const where: any = {
+      isArchived: includeArchived === 'true' ? { [Op.in]: [true, false] } : false,
+    };
     if (city) where.city = city;
 
     const subprojects = await Subproject.findAll({ where });
@@ -73,8 +76,11 @@ export const getSubprojectsByProjectId = async (req: Request, res: Response) => 
       });
     }
 
-    const { city } = req.query;
-    const where: any = { projectId };
+    const { city, includeArchived } = req.query;
+    const where: any = { 
+      projectId,
+      isArchived: includeArchived === 'true' ? { [Op.in]: [true, false] } : false,
+    };
     if (city) where.city = city;
 
     const subprojects = await Subproject.findAll({
@@ -254,22 +260,33 @@ export const deleteSubproject = async (req: Request, res: Response) => {
       });
     }
 
-    // Delete subproject
-    await subproject.destroy();
+    // Check if already archived
+    if (subproject.isArchived) {
+      return res.status(400).json({
+        success: false,
+        message: "Subproject is already archived",
+      });
+    }
+
+    // Archive subproject
+    await subproject.update({
+      isArchived: true,
+      archivedAt: new Date(),
+    });
 
     // Audit
     const actor = (req as any).user;
     const actorName = actor ? `${actor.firstName || ''} ${actor.lastName || ''}`.trim() || actor.email || actor.id : 'System';
     await AuditLog.create({
       userId: actor?.id || 'system',
-      action: 'SUBPROJECT_DELETED',
-      description: `${actorName} deleted subproject "${subproject.name}"`,
+      action: 'SUBPROJECT_ARCHIVED',
+      description: `${actorName} archived subproject "${subproject.name}"`,
       details: JSON.stringify({ subprojectId: id })
     });
 
     return res.status(200).json({
       success: true,
-      message: "Subproject deleted successfully",
+      message: "Subproject archived successfully",
     });
   } catch (error) {
     console.error("Error deleting subproject:", error);

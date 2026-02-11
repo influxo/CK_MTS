@@ -30,6 +30,8 @@ class User extends Model {
   public twoFactorSecret!: string | null;
   public twoFactorEnabled!: boolean;
   public lastLogin!: Date | null;
+  public isArchived!: boolean; // For soft delete/archiving
+  public archivedAt!: Date | null; // When the record was archived
   
   // Timestamps
   public readonly createdAt!: Date;
@@ -80,6 +82,15 @@ User.init(
       validate: {
         isIn: [['active', 'inactive', 'invited', 'suspended']]
       }
+    },
+    isArchived: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    archivedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     emailVerified: {
       type: DataTypes.BOOLEAN,

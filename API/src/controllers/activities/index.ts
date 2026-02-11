@@ -1,13 +1,19 @@
 import { Request, Response } from "express";
 import { Activity, Subproject } from "../../models";
 import { v4 as uuidv4 } from "uuid";
+import { Op } from "sequelize";
 
 /**
  * Get all activities
  */
 export const getAllActivities = async (req: Request, res: Response) => {
   try {
-    const activities = await Activity.findAll();
+    const { includeArchived } = req.query;
+    const where: any = {
+      isArchived: includeArchived === 'true' ? { [Op.in]: [true, false] } : false,
+    };
+
+    const activities = await Activity.findAll({ where });
 
     return res.status(200).json({
       success: true,
@@ -67,9 +73,13 @@ export const getActivitiesBySubprojectId = async (req: Request, res: Response) =
       });
     }
 
-    const activities = await Activity.findAll({
-      where: { subprojectId },
-    });
+    const { includeArchived } = req.query;
+    const where: any = {
+      subprojectId,
+      isArchived: includeArchived === 'true' ? { [Op.in]: [true, false] } : false,
+    };
+
+    const activities = await Activity.findAll({ where });
 
     return res.status(200).json({
       success: true,
@@ -210,15 +220,26 @@ export const deleteActivity = async (req: Request, res: Response) => {
       });
     }
 
-    // Delete activity
-    await activity.destroy();
+    // Check if already archived
+    if (activity.isArchived) {
+      return res.status(400).json({
+        success: false,
+        message: "Activity is already archived",
+      });
+    }
+
+    // Archive activity
+    await activity.update({
+      isArchived: true,
+      archivedAt: new Date(),
+    });
 
     return res.status(200).json({
       success: true,
-      message: "Activity deleted successfully",
+      message: "Activity archived successfully",
     });
   } catch (error) {
-    console.error("Error deleting activity:", error);
+    console.error("Error archiving activity:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",

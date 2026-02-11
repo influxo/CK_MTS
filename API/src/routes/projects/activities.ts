@@ -73,6 +73,13 @@ router.use(loggerMiddleware);
  *   get:
  *     summary: Get all activities
  *     tags: [Activities]
+ *     parameters:
+ *       - in: query
+ *         name: includeArchived
+ *         schema:
+ *           type: boolean
+ *         required: false
+ *         description: Include archived activities in results
  *     responses:
  *       200:
  *         description: List of all activities
@@ -139,6 +146,12 @@ router.get("/:id", authenticate, (req: Request, res: Response): void => {
  *           type: string
  *         required: true
  *         description: The subproject ID
+ *       - in: query
+ *         name: includeArchived
+ *         schema:
+ *           type: boolean
+ *         required: false
+ *         description: Include archived activities in results
  *     responses:
  *       200:
  *         description: List of activities for the subproject
@@ -286,7 +299,8 @@ router.put(
  * @swagger
  * /activities/{id}:
  *   delete:
- *     summary: Delete an activity
+ *     summary: Archive an activity
+ *     description: Archives an activity instead of permanently deleting it. Archived activities are hidden by default but can be retrieved with includeArchived=true.
  *     tags: [Activities]
  *     parameters:
  *       - in: path
@@ -297,7 +311,7 @@ router.put(
  *         description: The activity ID
  *     responses:
  *       200:
- *         description: Activity deleted successfully
+ *         description: Activity archived successfully
  *         content:
  *           application/json:
  *             schema:
@@ -308,7 +322,9 @@ router.put(
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Activity deleted successfully
+ *                   example: Activity archived successfully
+ *       400:
+ *         description: Activity already archived
  *       404:
  *         description: Activity not found
  */

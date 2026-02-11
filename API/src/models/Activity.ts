@@ -12,6 +12,8 @@ class Activity extends Model {
   public category!: string;
   public frequency!: string; // Based on the image: 'daily', 'weekly', 'monthly', etc.
   public reportingFields!: string; // JSON string to store the reporting fields from the image
+  public isArchived!: boolean; // For soft delete/archiving
+  public archivedAt!: Date | null; // When the record was archived
   public subprojectId!: string; // Foreign key to parent Subproject
 
   // Timestamps
@@ -74,7 +76,16 @@ Activity.init(
       validate: {
         isIn: [["active", "inactive"]],
       },
-    }
+    },
+    isArchived: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    archivedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   },
   {
     sequelize,

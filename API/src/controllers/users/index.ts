@@ -18,7 +18,13 @@ const logger = createLogger('users-controller');
 export const getAllUsers = async (req: Request, res: Response) => {
   logger.info('Getting all users');
   try {
+    const { includeArchived } = req.query;
+    const where: any = {
+      isArchived: includeArchived === 'true' ? { [Op.in]: [true, false] } : false,
+    };
+
     const users = await User.findAll({
+      where,
       include: [{ association: 'roles' }]
     });
 
@@ -802,41 +808,45 @@ export const updateUser = async (req: Request, res: Response) => {
  */
 export const deleteUser = async (req: Request, res: Response) => {
   const { id } = req.params;
-  logger.info('Deleting user', { userId: id });
+  logger.info('Archiving user', { userId: id });
 
   try {
     const user = await User.findByPk(id);
 
     if (!user) {
-      logger.warn('User not found for deletion', { userId: id });
+      logger.warn('User not found for archiving', { userId: id });
       return res.status(404).json({
         success: false,
         message: 'User not found',
       });
     }
 
-    // Delete user roles first
-    logger.info('Deleting user roles', { userId: id });
-    await UserRole.destroy({
-      where: {
-        userId: id,
-      },
+    // Check if already archived
+    if (user.isArchived) {
+      logger.warn('User already archived', { userId: id });
+      return res.status(400).json({
+        success: false,
+        message: 'User is already archived',
+      });
+    }
+
+    // Archive user
+    logger.info('Archiving user record', { userId: id });
+    await user.update({
+      isArchived: true,
+      archivedAt: new Date(),
     });
 
-    // Delete user
-    logger.info('Deleting user record', { userId: id });
-    await user.destroy();
-
-    logger.info('User deleted successfully', { userId: id });
+    logger.info('User archived successfully', { userId: id });
     return res.status(200).json({
       success: true,
-      message: 'User deleted successfully',
+      message: 'User archived successfully',
     });
   } catch (error: any) {
-    logger.error(`Error deleting user with ID: ${id}`, error);
+    logger.error(`Error archiving user with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
-      message: 'Error deleting user',
+      message: 'Error archiving user',
       error: error.message,
     });
   }
