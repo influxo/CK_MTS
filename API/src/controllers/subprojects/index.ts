@@ -10,11 +10,20 @@ import { Op } from "sequelize";
  */
 export const getAllSubprojects = async (req: Request, res: Response) => {
   try {
-    const { city, includeArchived } = req.query;
+    const { city, includeArchived, search } = req.query;
     const where: any = {
       isArchived: includeArchived === 'true' ? { [Op.in]: [true, false] } : false,
     };
     if (city) where.city = city;
+
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      where[Op.or] = [
+        { name: { [Op.iLike]: term } },
+        { description: { [Op.iLike]: term } },
+        { category: { [Op.iLike]: term } },
+      ];
+    }
 
     const subprojects = await Subproject.findAll({ where });
 
@@ -76,12 +85,21 @@ export const getSubprojectsByProjectId = async (req: Request, res: Response) => 
       });
     }
 
-    const { city, includeArchived } = req.query;
+    const { city, includeArchived, search } = req.query;
     const where: any = { 
       projectId,
       isArchived: includeArchived === 'true' ? { [Op.in]: [true, false] } : false,
     };
     if (city) where.city = city;
+
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      where[Op.or] = [
+        { name: { [Op.iLike]: term } },
+        { description: { [Op.iLike]: term } },
+        { category: { [Op.iLike]: term } },
+      ];
+    }
 
     const subprojects = await Subproject.findAll({
       where,

@@ -12,9 +12,12 @@ const logger = createLogger('beneficiaries-controller');
 
 const list = async (req: Request, res: Response) => {
   try {
-    const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
-    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
+    const page = req.query.page ? Math.max(parseInt(String(req.query.page), 10) || 1, 1) : 1;
+    const limit = req.query.limit ? Math.max(1, Math.min(parseInt(String(req.query.limit), 10) || 20, 100)) : 20;
+    const offset = (page - 1) * limit;
     const status = req.query.status as 'active' | 'inactive' | undefined;
+    const searchParam = req.query.search;
+    const hasSearch = searchParam && typeof searchParam === 'string' && searchParam.trim();
 
     // Determine if caller can view decrypted PII
     const roles = req.userRoles || [];
@@ -24,18 +27,29 @@ const list = async (req: Request, res: Response) => {
     const canDecrypt = true;
     logger.info('Beneficiaries.list role evaluation', { roleNames, canDecrypt });
 
-    // Always include encrypted fields from DB so we can decrypt or return as-is
-    const result = await beneficiariesService.listBeneficiaries({ page, limit, status, includeEnc: true });
-
-    let items: any[] = result.items;
-    if (canDecrypt) {
-      items = result.items.map((it: any) => ({
+    // Helper to map a raw beneficiary to response shape
+    const mapBeneficiary = (it: any) => {
+      const pii = {
+        firstName: decryptField(it.firstNameEnc as any),
+        lastName: decryptField(it.lastNameEnc as any),
+        dob: decryptField(it.dobEnc as any),
+        nationalId: decryptField(it.nationalIdEnc as any),
+        phone: decryptField(it.phoneEnc as any),
+        email: decryptField(it.emailEnc as any),
+        address: decryptField(it.addressEnc as any),
+        gender: decryptField(it.genderEnc as any),
+        municipality: decryptField(it.municipalityEnc as any),
+        nationality: decryptField(it.nationalityEnc as any),
+        ethnicity: decryptField(it.ethnicityEnc as any),
+        residence: decryptField(it.residenceEnc as any),
+        householdMembers: decryptField(it.householdMembersEnc as any),
+      };
+      const base: any = {
         id: it.id,
         pseudonym: it.pseudonym,
         status: it.status,
         createdAt: it.createdAt,
         updatedAt: it.updatedAt,
-        // Include both encrypted and decrypted for authorized users
         piiEnc: {
           firstNameEnc: it.firstNameEnc,
           lastNameEnc: it.lastNameEnc,
@@ -51,23 +65,40 @@ const list = async (req: Request, res: Response) => {
           residenceEnc: it.residenceEnc,
           householdMembersEnc: it.householdMembersEnc,
         },
-        pii: {
-          firstName: decryptField(it.firstNameEnc as any),
-          lastName: decryptField(it.lastNameEnc as any),
-          dob: decryptField(it.dobEnc as any),
-          nationalId: decryptField(it.nationalIdEnc as any),
-          phone: decryptField(it.phoneEnc as any),
-          email: decryptField(it.emailEnc as any),
-          address: decryptField(it.addressEnc as any),
-          gender: decryptField(it.genderEnc as any),
-          municipality: decryptField(it.municipalityEnc as any),
-          nationality: decryptField(it.nationalityEnc as any),
-          ethnicity: decryptField(it.ethnicityEnc as any),
-          residence: decryptField(it.residenceEnc as any),
-          householdMembers: decryptField(it.householdMembersEnc as any),
-        },
-      }));
+      };
+      if (canDecrypt) base.pii = pii;
+      return { mapped: base, pii };
+    };
 
+    let items: any[];
+    let totalItems: number;
+    let totalPages: number;
+
+    if (hasSearch) {
+      // When searching, fetch ALL records, decrypt, filter in memory, then paginate
+      const allResult = await beneficiariesService.listBeneficiaries({ page: 1, limit: 100000, status, includeEnc: true });
+      const searchLower = (searchParam as string).trim().toLowerCase();
+
+      const filtered = allResult.items
+        .map((it: any) => mapBeneficiary(it))
+        .filter(({ mapped, pii }) => {
+          if (mapped.pseudonym && mapped.pseudonym.toLowerCase().includes(searchLower)) return true;
+          const piiValues = Object.values(pii) as (string | null)[];
+          return piiValues.some((val) => val && val.toLowerCase().includes(searchLower));
+        });
+
+      totalItems = filtered.length;
+      totalPages = Math.ceil(totalItems / limit);
+      items = filtered.slice(offset, offset + limit).map(({ mapped }) => mapped);
+    } else {
+      // No search — use efficient DB-level pagination
+      const result = await beneficiariesService.listBeneficiaries({ page, limit, status, includeEnc: true });
+      items = result.items.map((it: any) => mapBeneficiary(it).mapped);
+      totalItems = result.totalItems;
+      totalPages = result.totalPages;
+    }
+
+    if (canDecrypt) {
       // Audit bulk PII read (list)
       try {
         await AuditLog.create({
@@ -75,7 +106,7 @@ const list = async (req: Request, res: Response) => {
           userId: req.user.id,
           action: 'BENEFICIARY_PII_LIST_READ',
           description: `Read PII for ${items.length} beneficiaries via GET /beneficiaries`,
-          details: JSON.stringify({ count: items.length, page, limit }),
+          details: JSON.stringify({ count: items.length, page, limit, searched: !!hasSearch }),
           timestamp: new Date(),
         });
       } catch (_) { /* ignore audit failures */ }
@@ -85,35 +116,10 @@ const list = async (req: Request, res: Response) => {
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('X-PII-Access', 'decrypt');
     } else {
-      // Wrap encrypted fields under piiEnc for clarity
-      items = result.items.map((it: any) => ({
-        id: it.id,
-        pseudonym: it.pseudonym,
-        status: it.status,
-        createdAt: it.createdAt,
-        updatedAt: it.updatedAt,
-        piiEnc: {
-          firstNameEnc: it.firstNameEnc,
-          lastNameEnc: it.lastNameEnc,
-          dobEnc: it.dobEnc,
-          nationalIdEnc: it.nationalIdEnc,
-          phoneEnc: it.phoneEnc,
-          emailEnc: it.emailEnc,
-          addressEnc: it.addressEnc,
-          genderEnc: it.genderEnc,
-          municipalityEnc: it.municipalityEnc,
-          nationalityEnc: it.nationalityEnc,
-          ethnicityEnc: it.ethnicityEnc,
-          residenceEnc: it.residenceEnc,
-          householdMembersEnc: it.householdMembersEnc,
-        },
-      }));
-    }
-
-    if (!canDecrypt) {
       res.setHeader('X-PII-Access', 'encrypted');
     }
-    return res.status(200).json({ success: true, items, page: result.page, limit: result.limit, totalItems: result.totalItems, totalPages: result.totalPages });
+
+    return res.status(200).json({ success: true, items, page, limit, totalItems, totalPages });
   } catch (error: any) {
     logger.error('Error listing beneficiaries', { error: error.message });
     return res.status(500).json({ success: false, message: 'Internal server error' });
@@ -1121,15 +1127,6 @@ const listByEntity = async (req: Request, res: Response) => {
       uniqueIds = uniqueIds.filter(id2 => allowedIdSet.has(id2));
     }
 
-    const totalItems = uniqueIds.length;
-    const totalPages = Math.ceil(totalItems / limit);
-    const pageIds = uniqueIds.slice(offset, offset + limit);
-
-    // Load beneficiaries for page
-    const beneficiaries = pageIds.length
-      ? await Beneficiary.findAll({ where: { id: pageIds } })
-      : [];
-
     // Role-based PII handling
     const roles = req.userRoles || [];
     const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
@@ -1137,68 +1134,93 @@ const listByEntity = async (req: Request, res: Response) => {
     // Relaxed policy: allow all roles to decrypt PII for now.
     const canDecrypt = true;
 
-    // Ensure output preserves page order as per pageIds
-    const byId = new Map(beneficiaries.map((b: any) => [String(b.id), b]));
-    let items: any[] = pageIds.map(id2 => byId.get(id2)).filter(Boolean).map((b: any) => ({
-      id: b.id,
-      pseudonym: b.pseudonym,
-      status: b.status,
-      createdAt: b.get('createdAt'),
-      updatedAt: b.get('updatedAt'),
-      firstNameEnc: b.get('firstNameEnc'),
-      lastNameEnc: b.get('lastNameEnc'),
-      dobEnc: b.get('dobEnc'),
-      nationalIdEnc: b.get('nationalIdEnc'),
-      phoneEnc: b.get('phoneEnc'),
-      emailEnc: b.get('emailEnc'),
-      addressEnc: b.get('addressEnc'),
-      genderEnc: b.get('genderEnc'),
-      municipalityEnc: b.get('municipalityEnc'),
-      nationalityEnc: b.get('nationalityEnc'),
-      ethnicityEnc: b.get('ethnicityEnc'),
-      residenceEnc: b.get('residenceEnc'),
-      householdMembersEnc: b.get('householdMembersEnc'),
-    }));
+    const searchParam = req.query.search;
+    const hasSearch = searchParam && typeof searchParam === 'string' && searchParam.trim();
+
+    // Helper to map a raw beneficiary to response shape
+    const mapBeneficiary = (b: any) => {
+      const pii = {
+        firstName: decryptField(b.get('firstNameEnc') as any),
+        lastName: decryptField(b.get('lastNameEnc') as any),
+        dob: decryptField(b.get('dobEnc') as any),
+        nationalId: decryptField(b.get('nationalIdEnc') as any),
+        phone: decryptField(b.get('phoneEnc') as any),
+        email: decryptField(b.get('emailEnc') as any),
+        address: decryptField(b.get('addressEnc') as any),
+        gender: decryptField(b.get('genderEnc') as any),
+        municipality: decryptField(b.get('municipalityEnc') as any),
+        nationality: decryptField(b.get('nationalityEnc') as any),
+        ethnicity: decryptField(b.get('ethnicityEnc') as any),
+        residence: decryptField(b.get('residenceEnc') as any),
+        householdMembers: decryptField(b.get('householdMembersEnc') as any),
+      };
+      const base: any = {
+        id: b.id,
+        pseudonym: b.pseudonym,
+        status: b.status,
+        createdAt: b.get('createdAt'),
+        updatedAt: b.get('updatedAt'),
+        piiEnc: {
+          firstNameEnc: b.get('firstNameEnc'),
+          lastNameEnc: b.get('lastNameEnc'),
+          dobEnc: b.get('dobEnc'),
+          nationalIdEnc: b.get('nationalIdEnc'),
+          phoneEnc: b.get('phoneEnc'),
+          emailEnc: b.get('emailEnc'),
+          addressEnc: b.get('addressEnc'),
+          genderEnc: b.get('genderEnc'),
+          municipalityEnc: b.get('municipalityEnc'),
+          nationalityEnc: b.get('nationalityEnc'),
+          ethnicityEnc: b.get('ethnicityEnc'),
+          residenceEnc: b.get('residenceEnc'),
+          householdMembersEnc: b.get('householdMembersEnc'),
+        },
+      };
+      if (canDecrypt) base.pii = pii;
+      return { mapped: base, pii };
+    };
+
+    let items: any[];
+    let totalItems: number;
+    let totalPages: number;
+
+    if (hasSearch) {
+      // When searching, load ALL beneficiaries, decrypt, filter in memory, then paginate
+      const allBeneficiaries = uniqueIds.length
+        ? await Beneficiary.findAll({ where: { id: uniqueIds } })
+        : [];
+
+      // Preserve order from uniqueIds
+      const byId = new Map(allBeneficiaries.map((b: any) => [String(b.id), b]));
+      const ordered = uniqueIds.map(id2 => byId.get(id2)).filter(Boolean);
+
+      const searchLower = (searchParam as string).trim().toLowerCase();
+      const filtered = ordered
+        .map((b: any) => mapBeneficiary(b))
+        .filter(({ mapped, pii }) => {
+          if (mapped.pseudonym && mapped.pseudonym.toLowerCase().includes(searchLower)) return true;
+          const piiValues = Object.values(pii) as (string | null)[];
+          return piiValues.some((val) => val && val.toLowerCase().includes(searchLower));
+        });
+
+      totalItems = filtered.length;
+      totalPages = Math.ceil(totalItems / limit);
+      items = filtered.slice(offset, offset + limit).map(({ mapped }) => mapped);
+    } else {
+      // No search — use efficient slice-based pagination
+      totalItems = uniqueIds.length;
+      totalPages = Math.ceil(totalItems / limit);
+      const pageIds = uniqueIds.slice(offset, offset + limit);
+
+      const beneficiaries = pageIds.length
+        ? await Beneficiary.findAll({ where: { id: pageIds } })
+        : [];
+
+      const byId = new Map(beneficiaries.map((b: any) => [String(b.id), b]));
+      items = pageIds.map(id2 => byId.get(id2)).filter(Boolean).map((b: any) => mapBeneficiary(b).mapped);
+    }
 
     if (canDecrypt) {
-      items = items.map((it: any) => ({
-        id: it.id,
-        pseudonym: it.pseudonym,
-        status: it.status,
-        createdAt: it.createdAt,
-        updatedAt: it.updatedAt,
-        piiEnc: {
-          firstNameEnc: it.firstNameEnc,
-          lastNameEnc: it.lastNameEnc,
-          dobEnc: it.dobEnc,
-          nationalIdEnc: it.nationalIdEnc,
-          phoneEnc: it.phoneEnc,
-          emailEnc: it.emailEnc,
-          addressEnc: it.addressEnc,
-          genderEnc: it.genderEnc,
-          municipalityEnc: it.municipalityEnc,
-          nationalityEnc: it.nationalityEnc,
-          ethnicityEnc: it.ethnicityEnc,
-          residenceEnc: it.residenceEnc,
-          householdMembersEnc: it.householdMembersEnc,
-        },
-        pii: {
-          firstName: decryptField(it.firstNameEnc as any),
-          lastName: decryptField(it.lastNameEnc as any),
-          dob: decryptField(it.dobEnc as any),
-          nationalId: decryptField(it.nationalIdEnc as any),
-          phone: decryptField(it.phoneEnc as any),
-          email: decryptField(it.emailEnc as any),
-          address: decryptField(it.addressEnc as any),
-          gender: decryptField(it.genderEnc as any),
-          municipality: decryptField(it.municipalityEnc as any),
-          nationality: decryptField(it.nationalityEnc as any),
-          ethnicity: decryptField(it.ethnicityEnc as any),
-          residence: decryptField(it.residenceEnc as any),
-          householdMembers: decryptField(it.householdMembersEnc as any),
-        },
-      }));
-
       // Audit PII list read
       try {
         await AuditLog.create({
@@ -1206,7 +1228,7 @@ const listByEntity = async (req: Request, res: Response) => {
           userId: req.user.id,
           action: 'BENEFICIARY_PII_LIST_READ_BY_ENTITY',
           description: `Read PII for ${items.length} beneficiaries via GET /beneficiaries/by-entity`,
-          details: JSON.stringify({ count: items.length, entityId, entityType, page, limit }),
+          details: JSON.stringify({ count: items.length, entityId, entityType, page, limit, searched: !!hasSearch }),
           timestamp: new Date(),
         });
       } catch (_) { /* ignore */ }
@@ -1215,28 +1237,6 @@ const listByEntity = async (req: Request, res: Response) => {
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('X-PII-Access', 'decrypt');
     } else {
-      items = items.map((it: any) => ({
-        id: it.id,
-        pseudonym: it.pseudonym,
-        status: it.status,
-        createdAt: it.createdAt,
-        updatedAt: it.updatedAt,
-        piiEnc: {
-          firstNameEnc: it.firstNameEnc,
-          lastNameEnc: it.lastNameEnc,
-          dobEnc: it.dobEnc,
-          nationalIdEnc: it.nationalIdEnc,
-          phoneEnc: it.phoneEnc,
-          emailEnc: it.emailEnc,
-          addressEnc: it.addressEnc,
-          genderEnc: it.genderEnc,
-          municipalityEnc: it.municipalityEnc,
-          nationalityEnc: it.nationalityEnc,
-          ethnicityEnc: it.ethnicityEnc,
-          residenceEnc: it.residenceEnc,
-          householdMembersEnc: it.householdMembersEnc,
-        },
-      }));
       res.setHeader('X-PII-Access', 'encrypted');
     }
 

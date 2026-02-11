@@ -60,6 +60,11 @@ router.use(loggerMiddleware);
  *         schema:
  *           type: string
  *           enum: [active, inactive]
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search beneficiaries by pseudonym or any decrypted PII field (firstName, lastName, email, nationalId, phone, address, municipality, nationality, etc.)
  *     responses:
  *       200:
  *         description: Paginated list of beneficiaries
@@ -107,6 +112,11 @@ router.get(
  *         name: limit
  *         schema:
  *           type: integer
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search beneficiaries by pseudonym or any decrypted PII field (firstName, lastName, email, nationalId, phone, address, municipality, nationality, etc.)
  *     responses:
  *       200:
  *         description: Paginated list of beneficiaries associated to the entity

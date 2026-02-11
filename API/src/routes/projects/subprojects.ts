@@ -83,6 +83,12 @@ router.use(loggerMiddleware);
  *           type: boolean
  *         required: false
  *         description: Include archived subprojects in results
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search subprojects by name, description, or category
  *     responses:
  *       200:
  *         description: List of all subprojects
@@ -162,6 +168,12 @@ router.get("/:id", authenticate, (req: Request, res: Response): void => {
  *           type: boolean
  *         required: false
  *         description: Include archived subprojects in results
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search subprojects by name, description, or category
  *     responses:
  *       200:
  *         description: List of subprojects for the project

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { User, Role, UserRole, AuditLog, Project, Subproject, Activity, ProjectUser, SubprojectUser, ActivityUser, Beneficiary, BeneficiaryAssignment } from '../../models';
+import { User, Role, Permission, UserRole, RolePermission, AuditLog, Project, Subproject, Activity, ProjectUser, SubprojectUser, ActivityUser, Beneficiary, BeneficiaryAssignment } from '../../models';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { Op } from 'sequelize';
@@ -18,10 +18,19 @@ const logger = createLogger('users-controller');
 export const getAllUsers = async (req: Request, res: Response) => {
   logger.info('Getting all users');
   try {
-    const { includeArchived } = req.query;
+    const { includeArchived, search } = req.query;
     const where: any = {
       isArchived: includeArchived === 'true' ? { [Op.in]: [true, false] } : false,
     };
+
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      where[Op.or] = [
+        { firstName: { [Op.iLike]: term } },
+        { lastName: { [Op.iLike]: term } },
+        { email: { [Op.iLike]: term } },
+      ];
+    }
 
     const users = await User.findAll({
       where,
@@ -1534,10 +1543,22 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
     const totalPages = Math.ceil(totalItems / limit);
     const teamMemberIdsArray = Array.from(teamMemberIds);
 
+    // Build user query with optional search
+    const userWhere: any = { id: { [Op.in]: teamMemberIdsArray } };
+    const searchParam = req.query.search;
+    if (searchParam && typeof searchParam === 'string' && searchParam.trim()) {
+      const term = `%${searchParam.trim()}%`;
+      userWhere[Op.or] = [
+        { firstName: { [Op.iLike]: term } },
+        { lastName: { [Op.iLike]: term } },
+        { email: { [Op.iLike]: term } },
+      ];
+    }
+
     // Fetch full user details for team members (paginated)
     const teamMembers = teamMemberIdsArray.length > 0
       ? await User.findAll({
-          where: { id: { [Op.in]: teamMemberIdsArray } },
+          where: userWhere,
           include: [{ association: 'roles' }],
           order: [['firstName', 'ASC'], ['lastName', 'ASC']],
           limit,
@@ -1722,23 +1743,6 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
     });
 
     const beneficiaryIds = beneficiaryAssignments.map((ba: any) => ba.beneficiaryId);
-    const totalItems = beneficiaryIds.length;
-    const totalPages = Math.ceil(totalItems / limit);
-
-    // Fetch beneficiaries with encrypted PII (paginated)
-    const beneficiariesRaw = beneficiaryIds.length > 0
-      ? await Beneficiary.findAll({
-          where: { id: { [Op.in]: beneficiaryIds } },
-          attributes: ['id', 'pseudonym', 'status', 'createdAt', 'updatedAt', 
-                      'firstNameEnc', 'lastNameEnc', 'dobEnc', 'genderEnc', 
-                      'addressEnc', 'municipalityEnc', 'nationalityEnc', 
-                      'nationalIdEnc', 'phoneEnc', 'emailEnc',
-                      'ethnicityEnc', 'residenceEnc', 'householdMembersEnc'],
-          order: [['pseudonym', 'ASC']],
-          limit,
-          offset,
-        })
-      : [];
 
     // Determine if user can view decrypted PII (same logic as beneficiaries controller)
     const roles = (req as any).userRoles || [];
@@ -1747,18 +1751,33 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
     const canDecrypt = true;
     logger.info('My beneficiaries role evaluation', { userId, roleNames, canDecrypt });
 
-    let beneficiaries: any[];
-    if (canDecrypt) {
-      // Import decryptField utility
-      const { decryptField } = require('../../utils/crypto');
-      
-      beneficiaries = beneficiariesRaw.map((b: any) => ({
+    const { decryptField } = require('../../utils/crypto');
+    const searchParam = req.query.search;
+    const hasSearch = searchParam && typeof searchParam === 'string' && searchParam.trim();
+
+    // Helper to build a decrypted beneficiary object
+    const mapBeneficiary = (b: any) => {
+      const pii = {
+        firstName: decryptField(b.firstNameEnc as any),
+        lastName: decryptField(b.lastNameEnc as any),
+        dob: decryptField(b.dobEnc as any),
+        nationalId: decryptField(b.nationalIdEnc as any),
+        phone: decryptField(b.phoneEnc as any),
+        email: decryptField(b.emailEnc as any),
+        address: decryptField(b.addressEnc as any),
+        gender: decryptField(b.genderEnc as any),
+        municipality: decryptField(b.municipalityEnc as any),
+        nationality: decryptField(b.nationalityEnc as any),
+        ethnicity: decryptField(b.ethnicityEnc as any),
+        residence: decryptField(b.residenceEnc as any),
+        householdMembers: decryptField(b.householdMembersEnc as any),
+      };
+      const base: any = {
         id: b.id,
         pseudonym: b.pseudonym,
         status: b.status,
         createdAt: b.createdAt,
         updatedAt: b.updatedAt,
-        // Include both encrypted and decrypted for authorized users
         piiEnc: {
           firstNameEnc: b.firstNameEnc,
           lastNameEnc: b.lastNameEnc,
@@ -1774,30 +1793,77 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
           residenceEnc: b.residenceEnc,
           householdMembersEnc: b.householdMembersEnc,
         },
-        pii: {
-          firstName: decryptField(b.firstNameEnc as any),
-          lastName: decryptField(b.lastNameEnc as any),
-          dob: decryptField(b.dobEnc as any),
-          nationalId: decryptField(b.nationalIdEnc as any),
-          phone: decryptField(b.phoneEnc as any),
-          email: decryptField(b.emailEnc as any),
-          address: decryptField(b.addressEnc as any),
-          gender: decryptField(b.genderEnc as any),
-          municipality: decryptField(b.municipalityEnc as any),
-          nationality: decryptField(b.nationalityEnc as any),
-          ethnicity: decryptField(b.ethnicityEnc as any),
-          residence: decryptField(b.residenceEnc as any),
-          householdMembers: decryptField(b.householdMembersEnc as any),
-        },
-      }));
+      };
+      if (canDecrypt) base.pii = pii;
+      return { mapped: base, pii };
+    };
 
+    let beneficiaries: any[];
+    let totalItems: number;
+    let totalPages: number;
+
+    const beneficiaryAttrs = [
+      'id', 'pseudonym', 'status', 'createdAt', 'updatedAt',
+      'firstNameEnc', 'lastNameEnc', 'dobEnc', 'genderEnc',
+      'addressEnc', 'municipalityEnc', 'nationalityEnc',
+      'nationalIdEnc', 'phoneEnc', 'emailEnc',
+      'ethnicityEnc', 'residenceEnc', 'householdMembersEnc',
+    ];
+
+    if (hasSearch) {
+      // When searching, we must decrypt all records first, then filter in memory
+      const allBeneficiariesRaw = beneficiaryIds.length > 0
+        ? await Beneficiary.findAll({
+            where: { id: { [Op.in]: beneficiaryIds } },
+            attributes: beneficiaryAttrs,
+            order: [['pseudonym', 'ASC']],
+          })
+        : [];
+
+      const searchLower = (searchParam as string).trim().toLowerCase();
+
+      // Decrypt, filter by search across pseudonym + all decrypted PII fields
+      const filtered = allBeneficiariesRaw
+        .map((b: any) => mapBeneficiary(b))
+        .filter(({ mapped, pii }) => {
+          // Check pseudonym
+          if (mapped.pseudonym && mapped.pseudonym.toLowerCase().includes(searchLower)) return true;
+          // Check all decrypted PII text fields
+          const piiValues = Object.values(pii) as (string | null)[];
+          return piiValues.some((val) => val && val.toLowerCase().includes(searchLower));
+        });
+
+      totalItems = filtered.length;
+      totalPages = Math.ceil(totalItems / limit);
+
+      // Apply pagination to the filtered results
+      beneficiaries = filtered.slice(offset, offset + limit).map(({ mapped }) => mapped);
+    } else {
+      // No search — use efficient DB-level pagination
+      totalItems = beneficiaryIds.length;
+      totalPages = Math.ceil(totalItems / limit);
+
+      const beneficiariesRaw = beneficiaryIds.length > 0
+        ? await Beneficiary.findAll({
+            where: { id: { [Op.in]: beneficiaryIds } },
+            attributes: beneficiaryAttrs,
+            order: [['pseudonym', 'ASC']],
+            limit,
+            offset,
+          })
+        : [];
+
+      beneficiaries = beneficiariesRaw.map((b: any) => mapBeneficiary(b).mapped);
+    }
+
+    if (canDecrypt) {
       // Audit bulk PII read
       try {
         await AuditLog.create({
           userId,
           action: 'BENEFICIARY_PII_LIST_READ',
           description: `Read PII for ${beneficiaries.length} beneficiaries via GET /users/my-beneficiaries`,
-          details: JSON.stringify({ count: beneficiaries.length }),
+          details: JSON.stringify({ count: beneficiaries.length, searched: !!hasSearch }),
         });
       } catch (_) { /* ignore audit failures */ }
 
@@ -1806,29 +1872,6 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('X-PII-Access', 'decrypt');
     } else {
-      // Return only encrypted fields
-      beneficiaries = beneficiariesRaw.map((b: any) => ({
-        id: b.id,
-        pseudonym: b.pseudonym,
-        status: b.status,
-        createdAt: b.createdAt,
-        updatedAt: b.updatedAt,
-        piiEnc: {
-          firstNameEnc: b.firstNameEnc,
-          lastNameEnc: b.lastNameEnc,
-          dobEnc: b.dobEnc,
-          nationalIdEnc: b.nationalIdEnc,
-          phoneEnc: b.phoneEnc,
-          emailEnc: b.emailEnc,
-          addressEnc: b.addressEnc,
-          genderEnc: b.genderEnc,
-          municipalityEnc: b.municipalityEnc,
-          nationalityEnc: b.nationalityEnc,
-          ethnicityEnc: b.ethnicityEnc,
-          residenceEnc: b.residenceEnc,
-          householdMembersEnc: b.householdMembersEnc,
-        },
-      }));
       res.setHeader('X-PII-Access', 'encrypted');
     }
 
@@ -1853,11 +1896,180 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Update a user's roles (replace all)
+ */
+export const updateUserRoles = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  logger.info('Updating user roles', { userId: id });
+
+  try {
+    const { roleIds } = req.body;
+
+    if (!roleIds || !Array.isArray(roleIds) || roleIds.length === 0) {
+      logger.warn('Invalid or empty roleIds provided', { userId: id });
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a non-empty array of roleIds',
+      });
+    }
+
+    // Find user
+    const user = await User.findByPk(id);
+    if (!user) {
+      logger.warn('User not found for role update', { userId: id });
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // Resolve roles
+    let roles: Role[] = [];
+
+    try {
+      roles = await Role.findAll({
+        where: {
+          id: {
+            [Op.in]: roleIds.map((rid: string | number) => String(rid)),
+          },
+        },
+      });
+
+      if (roles.length === 0) {
+        logger.info('No roles found by direct ID, trying to find by index', { roleIds });
+        const allRoles = await Role.findAll({ order: [['createdAt', 'ASC']] });
+        roles = roleIds
+          .map((rid: string | number) => {
+            const index = typeof rid === 'number' ? rid - 1 : parseInt(String(rid)) - 1;
+            return index >= 0 && index < allRoles.length ? allRoles[index] : null;
+          })
+          .filter((role: Role | null): role is Role => role !== null);
+      }
+    } catch (error) {
+      logger.error('Error finding roles', error);
+      roles = [];
+    }
+
+    if (roles.length === 0) {
+      logger.warn('No valid roles found to assign', { roleIds });
+      return res.status(400).json({
+        success: false,
+        message: 'No valid roles found for the provided roleIds',
+      });
+    }
+
+    // Remove existing roles
+    await UserRole.destroy({ where: { userId: id } });
+
+    // Assign new roles
+    await Promise.all(
+      roles.map((role: Role) =>
+        UserRole.create({
+          userId: id,
+          roleId: role.id,
+        })
+      )
+    );
+
+    // Return updated user with roles
+    const updatedUser = await User.findByPk(id, {
+      include: [{ model: Role, as: 'roles' }],
+    });
+
+    logger.info('User roles updated successfully', { userId: id, roleCount: roles.length });
+    return res.status(200).json({
+      success: true,
+      message: 'User roles updated successfully',
+      data: updatedUser,
+    });
+  } catch (error: any) {
+    logger.error(`Error updating roles for user with ID: ${id}`, error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error updating user roles',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get a user's effective permissions (derived from their roles)
+ */
+export const getUserPermissions = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  logger.info('Getting user permissions', { userId: id });
+
+  try {
+    const user = await User.findByPk(id, {
+      include: [
+        {
+          model: Role,
+          as: 'roles',
+          include: [
+            {
+              model: Permission,
+              as: 'permissions',
+            },
+          ],
+        },
+      ],
+    });
+
+    if (!user) {
+      logger.warn('User not found for permissions lookup', { userId: id });
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const roles = (user.get('roles') as any[]) || [];
+
+    // Collect unique permissions across all roles
+    const permissionMap = new Map<string, any>();
+    for (const role of roles) {
+      const perms = role.permissions || [];
+      for (const perm of perms) {
+        if (!permissionMap.has(perm.id)) {
+          permissionMap.set(perm.id, {
+            id: perm.id,
+            name: perm.name,
+            resource: perm.resource,
+            action: perm.action,
+            description: perm.description,
+          });
+        }
+      }
+    }
+
+    const permissions = Array.from(permissionMap.values());
+
+    logger.info('Successfully retrieved user permissions', { userId: id, permissionCount: permissions.length });
+    return res.status(200).json({
+      success: true,
+      data: {
+        userId: id,
+        roles: roles.map((r: any) => ({ id: r.id, name: r.name })),
+        permissions,
+      },
+    });
+  } catch (error: any) {
+    logger.error(`Error fetching permissions for user with ID: ${id}`, error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching user permissions',
+      error: error.message,
+    });
+  }
+};
+
 export default {
   getAllUsers,
   getUserById,
   createUser,
   updateUser,
+  updateUserRoles,
   updateMyProfile,
   deleteUser,
   resetPassword,
@@ -1867,4 +2079,5 @@ export default {
   getUserProjectsWithSubprojects,
   getMyTeamMembers,
   getMyBeneficiaries,
+  getUserPermissions,
 };

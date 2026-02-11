@@ -25,6 +25,26 @@ router.use(loggerMiddleware);
  *           type: boolean
  *         required: false
  *         description: Include archived users in results
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search users by first name, last name, or email
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         required: false
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         required: false
+ *         description: Number of items per page (max 100)
  *     responses:
  *       200:
  *         description: A list of users
@@ -83,6 +103,11 @@ router.get('/',
  *           type: string
  *           enum: [project, subproject, activity]
  *         description: Optional - Entity type for filtering (required if entityId is provided). Project filter includes child subprojects.
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search team members by first name, last name, or email
  *     responses:
  *       200:
  *         description: List of team members
@@ -164,6 +189,11 @@ router.get('/my-team',
  *           type: string
  *           enum: [project, subproject]
  *         description: Optional - Entity type for filtering (required if entityId is provided). Project filter includes child subprojects.
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search beneficiaries by pseudonym or any decrypted PII field (firstName, lastName, email, nationalId, phone, address, municipality, nationality, etc.)
  *     responses:
  *       200:
  *         description: List of beneficiaries with both encrypted and decrypted PII

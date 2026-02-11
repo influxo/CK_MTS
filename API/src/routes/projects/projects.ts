@@ -77,6 +77,12 @@ router.use(loggerMiddleware);
  *           type: boolean
  *         required: false
  *         description: Include archived projects in results
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search projects by name, description, or category
  *     responses:
  *       200:
  *         description: List of all projects

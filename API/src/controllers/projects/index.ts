@@ -15,11 +15,20 @@ const logger = createLogger('projects-controller');
 export const getAllProjects = async (req: Request, res: Response) => {
   logger.info('Getting all projects');
   try {
-    const { city, includeArchived } = req.query;
+    const { city, includeArchived, search } = req.query;
     const where: any = {
       isArchived: includeArchived === 'true' ? { [Op.in]: [true, false] } : false,
     };
     if (city) where.city = city;
+
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      where[Op.or] = [
+        { name: { [Op.iLike]: term } },
+        { description: { [Op.iLike]: term } },
+        { category: { [Op.iLike]: term } },
+      ];
+    }
 
     const projects = await Project.findAll({ where });
     logger.info(`Found ${projects.length} projects`);
