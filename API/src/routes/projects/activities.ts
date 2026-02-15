@@ -36,8 +36,22 @@ router.use(loggerMiddleware);
  *           type: string
  *           description: How often the activity occurs (daily, weekly, monthly, etc.)
  *         reportingFields:
- *           type: object
- *           description: JSON structure defining the reporting fields for this activity
+ *           type: array
+ *           description: Array of reporting field objects, each with a name, type, and optional value
+ *           items:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 description: Field name
+ *               type:
+ *                 type: string
+ *                 description: Field data type (e.g. number, text, date, boolean)
+ *               value:
+ *                 description: The submitted value for this field (type depends on field type)
+ *           example:
+ *             - {name: "beneficiaries", type: "number", value: 25}
+ *             - {name: "location", type: "text", value: "Prishtina"}
  *         status:
  *           type: string
  *           enum: [active, inactive]
@@ -60,7 +74,10 @@ router.use(loggerMiddleware);
  *         description: A weekly food distribution activity
  *         category: Food Aid
  *         frequency: weekly
- *         reportingFields: {"beneficiaries": "number", "foodQuantity": "number", "location": "text"}
+ *         reportingFields:
+ *           - {name: "beneficiaries", type: "number", value: 25}
+ *           - {name: "foodQuantity", type: "number", value: 100}
+ *           - {name: "location", type: "text", value: "Prishtina"}
  *         status: active
  *         subprojectId: 550e8400-e29b-41d4-a716-446655440001
  *         createdAt: '2023-01-01T17:32:28Z'
@@ -135,7 +152,7 @@ router.get("/:id", authenticate, (req: Request, res: Response): void => {
 
 /**
  * @swagger
- * /subprojects/{subprojectId}/activities:
+ * /activities/subproject/{subprojectId}:
  *   get:
  *     summary: Get all activities for a subproject
  *     tags: [Activities]
@@ -199,7 +216,17 @@ router.get("/subproject/:subprojectId", authenticate, (req: Request, res: Respon
  *               frequency:
  *                 type: string
  *               reportingFields:
- *                 type: object
+ *                 type: array
+ *                 description: Array of reporting field objects with name, type, and optional value
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                     type:
+ *                       type: string
+ *                     value:
+ *                       description: The submitted value for this field
  *               status:
  *                 type: string
  *                 enum: [active, inactive]
@@ -263,7 +290,17 @@ router.post(
  *               frequency:
  *                 type: string
  *               reportingFields:
- *                 type: object
+ *                 type: array
+ *                 description: Array of reporting field objects with name, type, and optional value
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                     type:
+ *                       type: string
+ *                     value:
+ *                       description: The submitted value for this field
  *               status:
  *                 type: string
  *                 enum: [active, inactive]
