@@ -62,7 +62,7 @@ router.use(loggerMiddleware);
 router.post(
   "/kpis",
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     formsController.kpis.createKpi(req, res);
   }
@@ -130,7 +130,7 @@ router.post(
 router.put(
   "/kpis/:id",
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     formsController.kpis.updateKpi(req, res);
   }
@@ -165,7 +165,7 @@ router.put(
 router.delete(
   "/kpis/:id",
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     formsController.kpis.deleteKpi(req, res);
   }

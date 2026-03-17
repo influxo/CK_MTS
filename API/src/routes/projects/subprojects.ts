@@ -254,7 +254,7 @@ router.get(
 router.post(
   "/",
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR,ROLES.PROGRAM_MANAGER,]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR,ROLES.PROGRAM_MANAGER,]),
   (req: Request, res: Response): void => {
     subprojectsController.createSubproject(req, res);
   }
@@ -314,7 +314,7 @@ router.post(
 router.put(
   "/:id",
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN,ROLES.SYSTEM_ADMINISTRATOR,ROLES.PROGRAM_MANAGER,]),
+  authorize([ROLES.SUPER_ADMIN,ROLES.SYSTEM_ADMINISTRATOR,ROLES.PROGRAM_MANAGER,]),
   (req: Request, res: Response): void => {
     subprojectsController.updateSubproject(req, res);
   }
@@ -356,7 +356,7 @@ router.put(
 router.delete(
   "/:id",
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     subprojectsController.deleteSubproject(req, res);
   }
@@ -425,7 +425,7 @@ router.get(
 router.post(
   "/:subprojectId/users",
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     assignmentsController.assignUserToSubproject(req, res);
   }
@@ -459,7 +459,7 @@ router.post(
 router.delete(
   "/:subprojectId/users/:userId",
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     assignmentsController.removeUserFromSubproject(req, res);
   }

@@ -8,6 +8,7 @@ import { createLogger } from '../../utils/logger';
 import { sendInvitationEmail } from '../../utils/mailer';
 import jwt from 'jsonwebtoken';
 import sequelize from '../../db/connection';
+import { isProtectedRole, validateNoProtectedRoles } from '../../utils/protectedRoles';
 
 // Create a logger instance for this module
 const logger = createLogger('users-controller');
@@ -606,6 +607,20 @@ export const createUser = async (req: Request, res: Response) => {
     if (roleIds && roleIds.length > 0) {
       logger.info('Assigning roles to user', { userId: user.id, roleIds });
 
+      // Validate that no protected roles are being assigned
+      try {
+        const stringRoleIds = roleIds.map((id: string | number) => String(id));
+        await validateNoProtectedRoles(stringRoleIds);
+      } catch (error: any) {
+        logger.warn('Attempted to assign protected role during user creation', { email, roleIds, error: error.message });
+        // Clean up: delete the created user
+        await user.destroy();
+        return res.status(403).json({
+          success: false,
+          message: error.message || 'Cannot assign protected role',
+        });
+      }
+
       let roles: Role[] = [];
 
       try {
@@ -643,6 +658,20 @@ export const createUser = async (req: Request, res: Response) => {
       } catch (error) {
         logger.error('Error finding roles', error);
         roles = [];
+      }
+
+      // Double-check: filter out any protected roles
+      const protectedRolesFound = roles.filter(r => isProtectedRole(r.name));
+      if (protectedRolesFound.length > 0) {
+        logger.warn('Protected roles detected and removed from assignment', { 
+          userId: user.id, 
+          protectedRoleNames: protectedRolesFound.map(r => r.name) 
+        });
+        await user.destroy(); // Clean up user
+        return res.status(403).json({
+          success: false,
+          message: 'Cannot assign protected role(s): ' + protectedRolesFound.map(r => r.name).join(', '),
+        });
       }
 
       if (roles.length > 0) {
@@ -728,6 +757,18 @@ export const updateUser = async (req: Request, res: Response) => {
     if (roleIds && Array.isArray(roleIds)) {
       logger.info('Updating user roles', { userId: id, roleIds });
 
+      // Validate that no protected roles are being assigned
+      try {
+        const stringRoleIds = roleIds.map((id: string | number) => String(id));
+        await validateNoProtectedRoles(stringRoleIds);
+      } catch (error: any) {
+        logger.warn('Attempted to assign protected role', { userId: id, roleIds, error: error.message });
+        return res.status(403).json({
+          success: false,
+          message: error.message || 'Cannot assign protected role',
+        });
+      }
+
       // Remove existing roles
       await UserRole.destroy({
         where: {
@@ -774,6 +815,16 @@ export const updateUser = async (req: Request, res: Response) => {
       } catch (error) {
         logger.error('Error finding roles', error);
         roles = [];
+      }
+
+      // Double-check: filter out any protected roles that might have slipped through
+      const protectedRoles = roles.filter(r => isProtectedRole(r.name));
+      if (protectedRoles.length > 0) {
+        logger.warn('Protected roles detected and removed from assignment', { 
+          userId: id, 
+          protectedRoleNames: protectedRoles.map(r => r.name) 
+        });
+        roles = roles.filter(r => !isProtectedRole(r.name));
       }
 
       if (roles.length > 0) {
@@ -1001,6 +1052,20 @@ export const inviteUser = async (req: Request, res: Response) => {
     // Assign roles
     logger.info('Assigning roles to invited user', { userId: user.id, roleIds });
 
+    // Validate that no protected roles are being assigned
+    try {
+      const stringRoleIds = roleIds.map((id: string | number) => String(id));
+      await validateNoProtectedRoles(stringRoleIds);
+    } catch (error: any) {
+      logger.warn('Attempted to assign protected role during invitation', { email: email, roleIds, error: error.message });
+      // Clean up: delete the created user
+      await user.destroy();
+      return res.status(403).json({
+        success: false,
+        message: error.message || 'Cannot assign protected role',
+      });
+    }
+
     let roles: Role[] = [];
 
     try {
@@ -1038,6 +1103,20 @@ export const inviteUser = async (req: Request, res: Response) => {
     } catch (error) {
       logger.error('Error finding roles', error);
       roles = [];
+    }
+
+    // Double-check: filter out any protected roles
+    const protectedRoles = roles.filter(r => isProtectedRole(r.name));
+    if (protectedRoles.length > 0) {
+      logger.warn('Protected roles detected and removed from assignment', { 
+        userId: user.id, 
+        protectedRoleNames: protectedRoles.map(r => r.name) 
+      });
+      await user.destroy(); // Clean up user
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot assign protected role(s): ' + protectedRoles.map(r => r.name).join(', '),
+      });
     }
 
     if (roles.length > 0) {
@@ -1914,6 +1993,18 @@ export const updateUserRoles = async (req: Request, res: Response) => {
       });
     }
 
+    // Validate that no protected roles are being assigned
+    try {
+      const stringRoleIds = roleIds.map((rid: string | number) => String(rid));
+      await validateNoProtectedRoles(stringRoleIds);
+    } catch (error: any) {
+      logger.warn('Attempted to assign protected role', { userId: id, roleIds, error: error.message });
+      return res.status(403).json({
+        success: false,
+        message: error.message || 'Cannot assign protected role',
+      });
+    }
+
     // Find user
     const user = await User.findByPk(id);
     if (!user) {
@@ -1949,6 +2040,19 @@ export const updateUserRoles = async (req: Request, res: Response) => {
     } catch (error) {
       logger.error('Error finding roles', error);
       roles = [];
+    }
+
+    // Double-check: filter out any protected roles
+    const protectedRoles = roles.filter(r => isProtectedRole(r.name));
+    if (protectedRoles.length > 0) {
+      logger.warn('Protected roles detected and removed from assignment', { 
+        userId: id, 
+        protectedRoleNames: protectedRoles.map(r => r.name) 
+      });
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot assign protected role(s): ' + protectedRoles.map(r => r.name).join(', '),
+      });
     }
 
     if (roles.length === 0) {

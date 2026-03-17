@@ -553,7 +553,7 @@ router.put('/me',
  */
 router.put('/:id', 
   authenticate, 
-  // authorize(['System Administrator']), 
+  authorize(['System Administrator']), 
   (req: Request, res: Response): void => {
     usersController.updateUser(req, res);
   }
@@ -591,7 +591,7 @@ router.put('/:id',
  */
 router.delete('/:id', 
   authenticate, 
-  // authorize(['System Administrator']), 
+  authorize(['System Administrator']), 
   (req: Request, res: Response): void => {
     usersController.deleteUser(req, res);
   }
@@ -636,7 +636,7 @@ router.delete('/:id',
  */
 router.post('/:id/reset-password', 
   authenticate, 
-  // authorize(['System Administrator']), 
+  authorize(['System Administrator']), 
   (req: Request, res: Response): void => {
     usersController.resetPassword(req, res);
   }
@@ -712,7 +712,7 @@ router.post('/:id/reset-password',
  */
 router.post('/invite', 
   authenticate, 
-  // authorize(['System Administrator']), 
+  authorize(['System Administrator']), 
   (req: Request, res: Response): void => {
     usersController.inviteUser(req, res);
   }

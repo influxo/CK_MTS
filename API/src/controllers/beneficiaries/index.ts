@@ -20,12 +20,10 @@ const list = async (req: Request, res: Response) => {
     const hasSearch = searchParam && typeof searchParam === 'string' && searchParam.trim();
 
     // Determine if caller can view decrypted PII
-    const roles = req.userRoles || [];
-    const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
-    // const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
-    // Relaxed policy: allow all roles to decrypt PII for now.
+    // Policy: All authenticated users with authorized access can decrypt PII
+    // Authorization is enforced at the route level via authorize() middleware
     const canDecrypt = true;
-    logger.info('Beneficiaries.list role evaluation', { roleNames, canDecrypt });
+    logger.info('Beneficiaries.list role evaluation', { canDecrypt });
 
     // Helper to map a raw beneficiary to response shape
     const mapBeneficiary = (it: any) => {
@@ -146,12 +144,10 @@ const getById = async (req: Request, res: Response) => {
         ...extra,
       } as any;
 
-      const roles = req.userRoles || [];
-      const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
-      // const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
-      // Relaxed policy: allow all roles to decrypt PII for now.
+      // Policy: All authenticated users with authorized access can decrypt PII
+      // Authorization is enforced at the route level via authorize() middleware
       const canDecrypt = true;
-      logger.info('Beneficiaries.getById role evaluation', { id, roleNames, canDecrypt });
+      logger.info('Beneficiaries.getById role evaluation', { id, canDecrypt });
 
       if (canDecrypt) {
         const piiEnc = {
@@ -721,14 +717,9 @@ const entitiesForBeneficiary = async (req: Request, res: Response) => {
 
 const demographics = async (req: Request, res: Response) => {
   try {
-    const roles = req.userRoles || [];
-    const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
-    // const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
-    // Relaxed policy: allow all roles to decrypt PII for now.
+    // Policy: All authenticated users with authorized access can decrypt PII
+    // Authorization is enforced at the route level via authorize() middleware
     const canDecrypt = true;
-    // if (!canDecrypt) {
-    //   return res.status(403).json({ success: false, message: 'Forbidden' });
-    // }
 
     const beneficiaries = await Beneficiary.findAll({
       attributes: ['dobEnc', 'genderEnc'],
@@ -1127,11 +1118,8 @@ const listByEntity = async (req: Request, res: Response) => {
       uniqueIds = uniqueIds.filter(id2 => allowedIdSet.has(id2));
     }
 
-    // Role-based PII handling
-    const roles = req.userRoles || [];
-    const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
-    // const canDecrypt = roleNames.includes(ROLES.SUPER_ADMIN) || roleNames.includes(ROLES.SYSTEM_ADMINISTRATOR);
-    // Relaxed policy: allow all roles to decrypt PII for now.
+    // Policy: All authenticated users with authorized access can decrypt PII
+    // Authorization is enforced at the route level via authorize() middleware
     const canDecrypt = true;
 
     const searchParam = req.query.search;

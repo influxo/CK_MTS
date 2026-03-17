@@ -4,6 +4,7 @@ import sequelize from '../../db/connection';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger';
 import { AuditLog, Permission, Role, RolePermission, UserRole } from '../../models';
+import { isProtectedRole } from '../../utils/protectedRoles';
 
 const logger = createLogger('roles-controller');
 
@@ -56,6 +57,15 @@ const create = async (req: Request, res: Response) => {
   const { name, description } = req.body || {};
   if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
 
+  // Prevent creating protected roles
+  if (isProtectedRole(name)) {
+    logger.warn('Attempted to create protected role', { name });
+    return res.status(403).json({ 
+      success: false, 
+      message: `Cannot create protected role: ${name}. This role is reserved for system use only.` 
+    });
+  }
+
   try {
     const exists = await Role.findOne({ where: { name } });
     if (exists) return res.status(409).json({ success: false, message: 'Role with this name already exists' });
@@ -91,6 +101,16 @@ const update = async (req: Request, res: Response) => {
       const role = await Role.findByPk(id, { transaction });
       if (!role) return null;
 
+      // Prevent changing a role to a protected name
+      if (name && name !== role.get('name') && isProtectedRole(name)) {
+        throw new Error('PROTECTED_ROLE_NAME');
+      }
+
+      // Prevent modifying the SuperAdmin role
+      if (isProtectedRole(role.get('name'))) {
+        throw new Error('PROTECTED_ROLE');
+      }
+
       if (name && name !== role.get('name')) {
         const exists = await Role.findOne({ where: { name }, transaction });
         if (exists) throw new Error('DUPLICATE_NAME');
@@ -116,6 +136,12 @@ const update = async (req: Request, res: Response) => {
     if (error.message === 'DUPLICATE_NAME') {
       return res.status(409).json({ success: false, message: 'Role with this name already exists' });
     }
+    if (error.message === 'PROTECTED_ROLE_NAME') {
+      return res.status(403).json({ success: false, message: `Cannot rename role to '${req.body.name}'. This is a protected role name.` });
+    }
+    if (error.message === 'PROTECTED_ROLE') {
+      return res.status(403).json({ success: false, message: 'Cannot modify protected role' });
+    }
     logger.error('Error updating role', { id, error: error.message });
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
@@ -127,6 +153,11 @@ const remove = async (req: Request, res: Response) => {
     const removed = await sequelize.transaction(async (transaction: Transaction) => {
       const role = await Role.findByPk(id, { transaction });
       if (!role) return null;
+
+      // Prevent deleting protected roles
+      if (isProtectedRole(role.get('name'))) {
+        throw new Error('PROTECTED_ROLE');
+      }
 
       // Detach from users and permissions first
       await RolePermission.destroy({ where: { roleId: id }, transaction });
@@ -149,6 +180,9 @@ const remove = async (req: Request, res: Response) => {
     if (!removed) return res.status(404).json({ success: false, message: 'Role not found' });
     return res.status(200).json({ success: true, data: removed });
   } catch (error: any) {
+    if (error.message === 'PROTECTED_ROLE') {
+      return res.status(403).json({ success: false, message: 'Cannot delete protected role' });
+    }
     logger.error('Error deleting role', { id, error: error.message });
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }

@@ -44,7 +44,7 @@ router.use(loggerMiddleware);
 router.get(
   '/',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER, ROLES.FIELD_OPERATOR]),
   (req: Request, res: Response): void => {
     servicesController.list(req, res);
   }
@@ -52,7 +52,7 @@ router.get(
 router.get(
   '/assigned',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER, ROLES.FIELD_OPERATOR]),
   (req: Request, res: Response): void => {
     servicesController.listAssignedForEntity(req, res);
   }
@@ -82,7 +82,7 @@ router.get(
 router.get(
   '/:id',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER, ROLES.FIELD_OPERATOR]),
   (req: Request, res: Response): void => {
     servicesController.getById(req, res);
   }
@@ -114,7 +114,7 @@ router.get(
 router.post(
   '/',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER, ROLES.FIELD_OPERATOR]),
   (req: Request, res: Response): void => {
     servicesController.create(req, res);
   }
@@ -153,7 +153,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.update(req, res);
   }
@@ -191,7 +191,7 @@ router.put(
 router.patch(
   '/:id/status',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.setStatus(req, res);
   }
@@ -228,7 +228,7 @@ router.patch(
 router.post(
   '/:id/assign',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.assignToEntity(req, res);
   }
@@ -265,7 +265,7 @@ router.post(
 router.post(
   '/:id/unassign',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.unassignFromEntity(req, res);
   }
@@ -312,7 +312,7 @@ router.post(
 router.post(
   '/assignments/batch',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.batchAssignToEntity(req, res);
   }
@@ -379,7 +379,7 @@ router.post(
 router.get(
   '/metrics/deliveries/count',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.metricsDeliveriesCount(req, res);
   }
@@ -434,7 +434,7 @@ router.get(
 router.get(
   '/metrics/deliveries/by-user',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.metricsDeliveriesByUser(req, res);
   }
@@ -489,7 +489,7 @@ router.get(
 router.get(
   '/metrics/deliveries/by-beneficiary',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.metricsDeliveriesByBeneficiary(req, res);
   }
@@ -541,7 +541,7 @@ router.get(
 router.get(
   '/metrics/deliveries/by-service',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.metricsDeliveriesByService(req, res);
   }
@@ -599,7 +599,7 @@ router.get(
 router.get(
   '/metrics/deliveries/by-form-template',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.metricsDeliveriesByFormTemplate(req, res);
   }
@@ -674,7 +674,7 @@ router.get(
 router.get(
   '/metrics/deliveries/series',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.metricsDeliveriesSeries(req, res);
   }
@@ -741,7 +741,7 @@ router.get(
 router.get(
   '/metrics/deliveries/summary',
   authenticate,
-  // authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
+  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR, ROLES.PROGRAM_MANAGER, ROLES.SUB_PROJECT_MANAGER]),
   (req: Request, res: Response): void => {
     servicesController.metricsDeliveriesSummary(req, res);
   }
