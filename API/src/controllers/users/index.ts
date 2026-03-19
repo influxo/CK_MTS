@@ -1227,7 +1227,7 @@ export const inviteUser = async (req: Request, res: Response) => {
     // Prepare accept-invitation link once so it can be returned in response
     const rawAcceptBase = `${process.env.FRONTEND_URL}/accept-invitation` || 'http://localhost:5173/accept-invitation';
     const acceptBase = /^(https?:)\/\//i.test(rawAcceptBase) ? rawAcceptBase : `https://${rawAcceptBase}`;
-    const acceptInvitationLink = `${acceptBase}?token=${verificationToken}&email=${encodeURIComponent(email)}`;
+    const acceptInvitationLink = `${acceptBase}?token=${verificationToken}&email=${email}`;
 
     // TODO: Send invitation email with verification link
     logger.info('User invited successfully, email should be sent', { userId: user.id });
