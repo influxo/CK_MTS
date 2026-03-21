@@ -141,7 +141,8 @@ export const login = async (req: Request, res: Response) => {
           lastName: user.lastName,
           email: user.email,
           roles: user.get('roles'),
-          twoFactorEnabled: user.twoFactorEnabled
+          twoFactorEnabled: user.twoFactorEnabled,
+          lastLogin: user.lastLogin
         }
       }
     });
@@ -217,7 +218,8 @@ export const verifyMfa = async (req: Request, res: Response) => {
           lastName: user.lastName,
           email: user.email,
           roles: user.get('roles'),
-          twoFactorEnabled: user.twoFactorEnabled
+          twoFactorEnabled: user.twoFactorEnabled,
+          lastLogin: user.lastLogin
         }
       }
     });
