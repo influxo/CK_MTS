@@ -941,14 +941,12 @@ export const resetPassword = async (req: Request, res: Response) => {
     }
 
     // Hash the new password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    const bcrypt = await import('bcryptjs');
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // Update user password
-    logger.info('Updating user password', { userId: id });
-    await user.update({
-      password: hashedPassword,
-    });
+    // Use setDataValue to bypass the model setter (which would re-hash)
+    user.setDataValue('password', hashedPassword);
+    await user.save();
 
     logger.info('Password reset successful', { userId: id });
     return res.status(200).json({

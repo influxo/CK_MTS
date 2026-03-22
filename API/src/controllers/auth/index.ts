@@ -680,15 +680,21 @@ export const resetPassword = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Passwords do not match' });
     }
 
-    const user = await User.findOne({ where: { verificationToken: token } });
+    const user = await User.scope('withPassword').findOne({ where: { verificationToken: token } });
     if (!user || !user.tokenExpiry || user.tokenExpiry.getTime() < Date.now()) {
       return res.status(400).json({ success: false, message: 'Invalid or expired token' });
     }
 
-    await User.update(
-      { password, verificationToken: null, tokenExpiry: null },
-      { where: { id: user.id } }
-    );
+    // Hash the new password
+    const bcrypt = await import('bcryptjs');
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Update using instance method with raw attributes to avoid double-hashing
+    // We use setDataValue to bypass the setter which would hash an already-hashed password
+    user.setDataValue('password', hashedPassword);
+    user.verificationToken = null;
+    user.tokenExpiry = null;
+    await user.save();
 
     await AuditLog.create({ userId: user.id, action: 'auth.resetPassword', description: 'Password reset via token' });
     return res.status(200).json({ success: true, message: 'Password reset successfully' });
