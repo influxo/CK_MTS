@@ -1,6 +1,6 @@
 import { Transaction, Op, FindAndCountOptions } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
-import { Beneficiary, BeneficiaryMatchKey, BeneficiaryMapping } from '../../models';
+import { Beneficiary, BeneficiaryMatchKey, BeneficiaryMapping, BeneficiaryDetails } from '../../models';
 import {
   encryptField,
   hmacSha256,
@@ -317,7 +317,7 @@ export default {
     return b ? toSafe(b) : null;
   },
 
-  async listBeneficiaries(params: { page?: number; limit?: number; status?: 'active' | 'inactive'; includeEnc?: boolean }) {
+  async listBeneficiaries(params: { page?: number; limit?: number; status?: 'active' | 'inactive'; includeEnc?: boolean; includeDetails?: boolean }) {
     const page = Math.max(1, params.page || 1);
     const limit = Math.min(100, Math.max(1, params.limit || 20));
     const offset = (page - 1) * limit;
@@ -347,6 +347,12 @@ export default {
       offset,
       order: [['createdAt', 'DESC']],
       attributes,
+      include: params.includeDetails ? [{
+        model: BeneficiaryDetails,
+        as: 'details',
+        attributes: ['details'],
+        required: false,
+      }] : [],
     } as FindAndCountOptions);
     const items = rows.map(r => {
       const base: any = { id: r.id, pseudonym: r.pseudonym, status: r.status, createdAt: r.get('createdAt'), updatedAt: r.get('updatedAt') };
@@ -364,6 +370,10 @@ export default {
         base.ethnicityEnc = r.get('ethnicityEnc');
         base.residenceEnc = r.get('residenceEnc');
         base.householdMembersEnc = r.get('householdMembersEnc');
+      }
+      if (params.includeDetails) {
+        const detailsAssoc = r.get('details') as any;
+        base.details = detailsAssoc ? { details: detailsAssoc.get('details') } : null;
       }
       return base;
     });

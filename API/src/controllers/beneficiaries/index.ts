@@ -17,13 +17,16 @@ const list = async (req: Request, res: Response) => {
     const offset = (page - 1) * limit;
     const status = req.query.status as 'active' | 'inactive' | undefined;
     const searchParam = req.query.search;
+    const chronicConditionCodes = req.query.chronicConditionCodes
+      ? String(req.query.chronicConditionCodes).split(',').filter(Boolean)
+      : undefined;
     const hasSearch = searchParam && typeof searchParam === 'string' && searchParam.trim();
 
     // Determine if caller can view decrypted PII
     // Policy: All authenticated users with authorized access can decrypt PII
     // Authorization is enforced at the route level via authorize() middleware
     const canDecrypt = true;
-    logger.info('Beneficiaries.list role evaluation', { canDecrypt });
+    logger.info('Beneficiaries.list role evaluation', { canDecrypt, chronicConditionCodes });
 
     // Helper to map a raw beneficiary to response shape
     const mapBeneficiary = (it: any) => {
@@ -72,25 +75,42 @@ const list = async (req: Request, res: Response) => {
     let totalItems: number;
     let totalPages: number;
 
-    if (hasSearch) {
-      // When searching, fetch ALL records, decrypt, filter in memory, then paginate
+    if (hasSearch || chronicConditionCodes) {
+      // When searching or filtering by chronic conditions, fetch ALL records, decrypt, filter in memory, then paginate
       const allResult = await beneficiariesService.listBeneficiaries({ page: 1, limit: 100000, status, includeEnc: true });
-      const searchLower = (searchParam as string).trim().toLowerCase();
+      const searchLower = searchParam ? (searchParam as string).trim().toLowerCase() : '';
 
       const filtered = allResult.items
-        .map((it: any) => mapBeneficiary(it))
-        .filter(({ mapped, pii }) => {
-          if (mapped.pseudonym && mapped.pseudonym.toLowerCase().includes(searchLower)) return true;
-          const piiValues = Object.values(pii) as (string | null)[];
-          return piiValues.some((val) => val && val.toLowerCase().includes(searchLower));
+        .map((it: any) => {
+          const { mapped, pii } = mapBeneficiary(it);
+          // Load beneficiary details for chronic condition filtering
+          return { mapped, pii, details: it.details?.details || null };
+        })
+        .filter(({ mapped, pii, details }) => {
+          // Search filter
+          if (hasSearch) {
+            if (mapped.pseudonym && mapped.pseudonym.toLowerCase().includes(searchLower)) return true;
+            const piiValues = Object.values(pii) as (string | null)[];
+            if (piiValues.some((val) => val && val.toLowerCase().includes(searchLower))) return true;
+          }
+          // Chronic condition filter (by ICD-10 code)
+          if (chronicConditionCodes && chronicConditionCodes.length > 0) {
+            const beneficiaryConditionCodes = details?.chronicConditionCodes || [];
+            if (!Array.isArray(beneficiaryConditionCodes)) return false;
+            const hasMatchingCode = chronicConditionCodes.some((code: string) =>
+              beneficiaryConditionCodes.includes(code.toUpperCase())
+            );
+            if (!hasMatchingCode) return false;
+          }
+          return hasSearch || true;
         });
 
       totalItems = filtered.length;
       totalPages = Math.ceil(totalItems / limit);
       items = filtered.slice(offset, offset + limit).map(({ mapped }) => mapped);
     } else {
-      // No search — use efficient DB-level pagination
-      const result = await beneficiariesService.listBeneficiaries({ page, limit, status, includeEnc: true });
+      // No search or chronic condition filter — use efficient DB-level pagination
+      const result = await beneficiariesService.listBeneficiaries({ page, limit, status, includeEnc: true, includeDetails: false });
       items = result.items.map((it: any) => mapBeneficiary(it).mapped);
       totalItems = result.totalItems;
       totalPages = result.totalPages;
@@ -302,11 +322,22 @@ const create = async (req: Request, res: Response) => {
       const safe = await beneficiariesService.createBeneficiary(input, { transaction, userId: req.user.id });
 
       // If details provided, upsert BeneficiaryDetails linked to this beneficiary
+      // Convert chronicConditions (IDs) to chronicConditionCodes (ICD-10 codes) if needed
       if (details) {
+        const processedDetails = { ...details };
+        // If chronicConditions array is provided, convert to chronicConditionCodes
+        if (details.chronicConditions && Array.isArray(details.chronicConditions)) {
+          const { CHRONIC_CONDITIONS } = await import('../../constants/chronicConditions');
+          const codes = details.chronicConditions
+            .map((id: string) => (CHRONIC_CONDITIONS as any)[id]?.code)
+            .filter((code: string) => code !== undefined);
+          processedDetails.chronicConditionCodes = codes;
+          delete processedDetails.chronicConditions;
+        }
         await BeneficiaryDetails.upsert({
           id: uuidv4(),
           beneficiaryId: safe.id,
-          details,
+          details: processedDetails,
         }, { transaction });
       }
 

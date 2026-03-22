@@ -65,6 +65,11 @@ router.use(loggerMiddleware);
  *         schema:
  *           type: string
  *         description: Search beneficiaries by pseudonym or any decrypted PII field (firstName, lastName, email, nationalId, phone, address, municipality, nationality, etc.)
+ *       - in: query
+ *         name: chronicConditionCodes
+ *         schema:
+ *           type: string
+ *         description: Filter beneficiaries by ICD-10 diagnosis codes (comma-separated list, e.g., "E11,I10,J45"). Returns beneficiaries who have ANY of the specified conditions.
  *     responses:
  *       200:
  *         description: Paginated list of beneficiaries
@@ -396,6 +401,44 @@ router.get(
  *                 type: object
  *                 additionalProperties: true
  *                 description: Optional extended details JSON to store under beneficiary_details
+ *                 properties:
+ *                   chronicConditionCodes:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                     description: Array of ICD-10 diagnosis codes (e.g., ["E11", "I10", "J45"])
+ *                     example: ["E11", "I10"]
+ *                   chronicConditions:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                     description: Alternative: Array of chronic condition IDs (will be converted to codes automatically)
+ *                     example: ["DIABETES_TIP_II", "HIPERTENSION_ARTERIAL"]
+ *           examples:
+ *             withCodes:
+ *               summary: Using ICD-10 codes directly
+ *               value:
+ *                 firstName: Ahmet
+ *                 lastName: Krasniqi
+ *                 dob: 1975-05-12
+ *                 gender: M
+ *                 phone: +38344123456
+ *                 municipality: Prishtina
+ *                 status: active
+ *                 details:
+ *                   chronicConditionCodes: ["E11", "I10"]
+ *             withIds:
+ *               summary: Using condition IDs (auto-converted to codes)
+ *               value:
+ *                 firstName: Ahmet
+ *                 lastName: Krasniqi
+ *                 dob: 1975-05-12
+ *                 gender: M
+ *                 phone: +38344123456
+ *                 municipality: Prishtina
+ *                 status: active
+ *                 details:
+ *                   chronicConditions: ["DIABETES_TIP_II", "HIPERTENSION_ARTERIAL"]
  *     responses:
  *       201:
  *         description: Created
