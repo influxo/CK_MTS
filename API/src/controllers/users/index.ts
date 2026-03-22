@@ -1227,7 +1227,10 @@ export const inviteUser = async (req: Request, res: Response) => {
     // Prepare accept-invitation link once so it can be returned in response
     const rawAcceptBase = `${process.env.FRONTEND_URL}/accept-invitation` || 'http://localhost:5173/accept-invitation';
     const acceptBase = /^(https?:)\/\//i.test(rawAcceptBase) ? rawAcceptBase : `https://${rawAcceptBase}`;
-    const acceptInvitationLink = `${acceptBase}?token=${verificationToken}&email=${email}`;
+    const acceptInvitationUrl = new URL(acceptBase);
+    acceptInvitationUrl.searchParams.set('token', verificationToken);
+    acceptInvitationUrl.searchParams.set('email', email);
+    const acceptInvitationLink = acceptInvitationUrl.toString();
 
     // TODO: Send invitation email with verification link
     logger.info('User invited successfully, email should be sent', { userId: user.id });
@@ -1329,9 +1332,11 @@ export const verifyEmail = async (req: Request, res: Response) => {
     // If a frontend accept invitation URL is configured, redirect user there with token and email
     const acceptUrl = process.env.FRONTEND_ACCEPT_INVITE_URL;
     if (acceptUrl && typeof acceptUrl === 'string') {
-      const redirectTo = `${acceptUrl}?token=${encodeURIComponent(String(token))}&email=${encodeURIComponent(String(email))}`;
-      logger.info('Email verified successfully; redirecting to accept invitation UI', { userId: user.id, redirectTo });
-      return res.redirect(302, redirectTo);
+      const redirectTo = new URL(acceptUrl);
+      redirectTo.searchParams.set('token', String(token));
+      redirectTo.searchParams.set('email', String(email));
+      logger.info('Email verified successfully; redirecting to accept invitation UI', { userId: user.id, redirectTo: redirectTo.toString() });
+      return res.redirect(302, redirectTo.toString());
     }
 
     logger.info('Email verified successfully (token retained for acceptance), no FRONTEND_URL configured', { userId: user.id });

@@ -596,19 +596,34 @@ export const getMetricsSummary = async (req: Request, res: Response) => {
     logger.info('User filter for metrics summary', { userId: req.user.id, userFilter, hasExplicitParams: { entityId: req.query.entityId, projectId: req.query.projectId } });
 
     // Check if explicit entity IDs are provided (these override automatic filtering)
-    const hasExplicitEntityId = !!(req.query.entityId || req.query.projectId || req.query.subprojectId || req.query.activityId);
+    // Support both singular and plural (array) forms
+    const hasExplicitEntityId = !!(req.query.entityId || req.query.projectId || req.query.subprojectId || req.query.activityId || req.query.projectIds || req.query.subprojectIds);
 
     if (hasExplicitEntityId) {
       // Use explicit entity IDs provided by user
       if (req.query.entityId) {
-        filters.entityId = req.query.entityId as string;
-        if (req.query.entityType) filters.entityType = req.query.entityType as string;
+        filters.entityId = String(req.query.entityId);
+        if (req.query.entityType) filters.entityType = String(req.query.entityType);
       } else if (req.query.projectId) {
-        filters.projectId = req.query.projectId as string;
+        filters.projectId = String(req.query.projectId);
       } else if (req.query.subprojectId) {
-        filters.subprojectId = req.query.subprojectId as string;
+        filters.subprojectId = String(req.query.subprojectId);
       } else if (req.query.activityId) {
-        filters.activityId = req.query.activityId as string;
+        filters.activityId = String(req.query.activityId);
+      } else if (req.query.projectIds) {
+        // Support array of project IDs (comma-separated or repeated param)
+        const projectIdsParam = req.query.projectIds;
+        const projectIdsArray = Array.isArray(projectIdsParam)
+          ? projectIdsParam.map(id => String(id)).filter(Boolean)
+          : String(projectIdsParam).split(',').filter(Boolean);
+        filters.projectIds = projectIdsArray;
+      } else if (req.query.subprojectIds) {
+        // Support array of subproject IDs (comma-separated or repeated param)
+        const subprojectIdsParam = req.query.subprojectIds;
+        const subprojectIdsArray = Array.isArray(subprojectIdsParam)
+          ? subprojectIdsParam.map(id => String(id)).filter(Boolean)
+          : String(subprojectIdsParam).split(',').filter(Boolean);
+        filters.subprojectIds = subprojectIdsArray;
       }
     } else if (!userFilter.isAdmin) {
       // No explicit entity IDs - apply automatic role-based filtering
@@ -688,19 +703,34 @@ export const getMetricsSeries = async (req: Request, res: Response) => {
     const userFilter = await getUserEntityFilter(req.user.id);
 
     // Check if explicit entity IDs are provided (these override automatic filtering)
-    const hasExplicitEntityId = !!(req.query.entityId || req.query.projectId || req.query.subprojectId || req.query.activityId);
+    // Support both singular and plural (array) forms
+    const hasExplicitEntityId = !!(req.query.entityId || req.query.projectId || req.query.subprojectId || req.query.activityId || req.query.projectIds || req.query.subprojectIds);
 
     if (hasExplicitEntityId) {
       // Use explicit entity IDs provided by user
       if (req.query.entityId) {
-        filters.entityId = req.query.entityId as string;
-        if (req.query.entityType) filters.entityType = req.query.entityType as string;
+        filters.entityId = String(req.query.entityId);
+        if (req.query.entityType) filters.entityType = String(req.query.entityType);
       } else if (req.query.projectId) {
-        filters.projectId = req.query.projectId as string;
+        filters.projectId = String(req.query.projectId);
       } else if (req.query.subprojectId) {
-        filters.subprojectId = req.query.subprojectId as string;
+        filters.subprojectId = String(req.query.subprojectId);
       } else if (req.query.activityId) {
-        filters.activityId = req.query.activityId as string;
+        filters.activityId = String(req.query.activityId);
+      } else if (req.query.projectIds) {
+        // Support array of project IDs (comma-separated or repeated param)
+        const projectIdsParam = req.query.projectIds;
+        const projectIdsArray = Array.isArray(projectIdsParam)
+          ? projectIdsParam.map(id => String(id)).filter(Boolean)
+          : String(projectIdsParam).split(',').filter(Boolean);
+        filters.projectIds = projectIdsArray;
+      } else if (req.query.subprojectIds) {
+        // Support array of subproject IDs (comma-separated or repeated param)
+        const subprojectIdsParam = req.query.subprojectIds;
+        const subprojectIdsArray = Array.isArray(subprojectIdsParam)
+          ? subprojectIdsParam.map(id => String(id)).filter(Boolean)
+          : String(subprojectIdsParam).split(',').filter(Boolean);
+        filters.subprojectIds = subprojectIdsArray;
       }
     } else if (!userFilter.isAdmin) {
       // No explicit entity IDs - apply automatic role-based filtering

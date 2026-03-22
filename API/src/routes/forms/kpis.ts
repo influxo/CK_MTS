@@ -572,13 +572,19 @@ router.get(
  *     summary: Dynamic metrics summary from responses and service deliveries (no KPI definitions required)
  *     description: |
  *       Returns summary statistics for form submissions with automatic role-based filtering.
- *       
+ *
  *       **Automatic Role-Based Filtering:**
  *       - **SuperAdmin & System Administrator**: See all data
  *       - **Program Manager**: See only their assigned projects
  *       - **Sub-Project Manager**: See only their assigned subprojects
  *       - **Field Operator**: See only their own submissions (filtered by submittedBy)
  *       - **Override**: Use entityId/projectId/subprojectId parameters to explicitly filter
+ *       
+ *       **Multiple Entity Filtering:**
+ *       - Use `projectIds` (array) to filter by multiple projects
+ *       - Use `subprojectIds` (array) to filter by multiple subprojects
+ *       - When using arrays, hierarchical expansion applies (e.g., projectIds includes their subprojects and activities)
+ *       - Authorization is still enforced - users only see entities they have access to
  *     tags: [Forms, KPIs]
  *     security:
  *       - bearerAuth: []
@@ -606,6 +612,14 @@ router.get(
  *       - in: query
  *         name: activityId
  *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: projectIds
+ *         schema: { type: array, items: { type: string, format: uuid } }
+ *         description: Array of project IDs to filter by (supports multiple projects)
+ *       - in: query
+ *         name: subprojectIds
+ *         schema: { type: array, items: { type: string, format: uuid } }
+ *         description: Array of subproject IDs to filter by (supports multiple subprojects)
  *       - in: query
  *         name: beneficiaryId
  *         schema: { type: string, format: uuid }
@@ -646,13 +660,19 @@ router.get(
  *     summary: Dynamic metrics time series (submissions, serviceDeliveries, uniqueBeneficiaries)
  *     description: |
  *       Returns time series metrics for form submissions with automatic role-based filtering.
- *       
+ *
  *       **Automatic Role-Based Filtering:**
  *       - **SuperAdmin & System Administrator**: See all data
  *       - **Program Manager**: See only their assigned projects
  *       - **Sub-Project Manager**: See only their assigned subprojects
  *       - **Field Operator**: See only their own submissions (filtered by submittedBy)
  *       - **Override**: Use entityId/projectId/subprojectId parameters to explicitly filter
+ *       
+ *       **Multiple Entity Filtering:**
+ *       - Use `projectIds` (array) to filter by multiple projects
+ *       - Use `subprojectIds` (array) to filter by multiple subprojects
+ *       - When using arrays, hierarchical expansion applies (e.g., projectIds includes their subprojects and activities)
+ *       - Authorization is still enforced - users only see entities they have access to
  *     tags: [Forms, KPIs]
  *     security:
  *       - bearerAuth: []
@@ -686,6 +706,14 @@ router.get(
  *       - in: query
  *         name: activityId
  *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: projectIds
+ *         schema: { type: array, items: { type: string, format: uuid } }
+ *         description: Array of project IDs to filter by (supports multiple projects)
+ *       - in: query
+ *         name: subprojectIds
+ *         schema: { type: array, items: { type: string, format: uuid } }
+ *         description: Array of subproject IDs to filter by (supports multiple subprojects)
  *       - in: query
  *         name: beneficiaryId
  *         schema: { type: string, format: uuid }
