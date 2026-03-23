@@ -1,30 +1,50 @@
-import { Request, Response } from 'express';
-import { User, Role, Permission, UserRole, RolePermission, AuditLog, Project, Subproject, Activity, ProjectUser, SubprojectUser, ActivityUser, Beneficiary, BeneficiaryAssignment } from '../../models';
-import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
-import { Op } from 'sequelize';
-import crypto from 'crypto';
-import { createLogger } from '../../utils/logger';
-import { sendInvitationEmail } from '../../utils/mailer';
-import jwt from 'jsonwebtoken';
-import sequelize from '../../db/connection';
-import { isProtectedRole, validateNoProtectedRoles } from '../../utils/protectedRoles';
+import { Request, Response } from "express";
+import {
+  User,
+  Role,
+  Permission,
+  UserRole,
+  RolePermission,
+  AuditLog,
+  Project,
+  Subproject,
+  Activity,
+  ProjectUser,
+  SubprojectUser,
+  ActivityUser,
+  Beneficiary,
+  BeneficiaryAssignment,
+} from "../../models";
+import bcrypt from "bcryptjs";
+import { v4 as uuidv4 } from "uuid";
+import { Op } from "sequelize";
+import crypto from "crypto";
+import { createLogger } from "../../utils/logger";
+import { sendInvitationEmail } from "../../utils/mailer";
+import jwt from "jsonwebtoken";
+import sequelize from "../../db/connection";
+import {
+  isProtectedRole,
+  validateNoProtectedRoles,
+} from "../../utils/protectedRoles";
+import { ROLES } from "../../constants/roles";
 
 // Create a logger instance for this module
-const logger = createLogger('users-controller');
+const logger = createLogger("users-controller");
 
 /**
  * Get all users
  */
 export const getAllUsers = async (req: Request, res: Response) => {
-  logger.info('Getting all users');
+  logger.info("Getting all users");
   try {
     const { includeArchived, search } = req.query;
     const where: any = {
-      isArchived: includeArchived === 'true' ? { [Op.in]: [true, false] } : false,
+      isArchived:
+        includeArchived === "true" ? { [Op.in]: [true, false] } : false,
     };
 
-    if (search && typeof search === 'string' && search.trim()) {
+    if (search && typeof search === "string" && search.trim()) {
       const term = `%${search.trim()}%`;
       where[Op.or] = [
         { firstName: { [Op.iLike]: term } },
@@ -35,19 +55,19 @@ export const getAllUsers = async (req: Request, res: Response) => {
 
     const users = await User.findAll({
       where,
-      include: [{ association: 'roles' }]
+      include: [{ association: "roles" }],
     });
 
-    logger.info('Successfully retrieved all users', { count: users.length });
+    logger.info("Successfully retrieved all users", { count: users.length });
     return res.status(200).json({
       success: true,
-      data: users
+      data: users,
     });
   } catch (error) {
-    logger.error('Error fetching users', error);
+    logger.error("Error fetching users", error);
     return res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: "Internal server error",
     });
   }
 };
@@ -56,83 +76,143 @@ export const getAllUsers = async (req: Request, res: Response) => {
  * Get projects and subprojects associated to a user (nested)
  * Response: [{ project, subprojects: [...] }]
  */
-export const getUserProjectsWithSubprojects = async (req: Request, res: Response) => {
+export const getUserProjectsWithSubprojects = async (
+  req: Request,
+  res: Response,
+) => {
   const { id } = req.params;
-  logger.info('Getting user projects with subprojects', { userId: id });
+  logger.info("Getting user projects with subprojects", { userId: id });
 
   try {
     // Ensure user exists (light check)
     const user = await User.findByPk(id);
     if (!user) {
-      logger.warn('User not found when fetching projects/subprojects', { userId: id });
-      return res.status(404).json({ success: false, message: 'User not found' });
+      logger.warn("User not found when fetching projects/subprojects", {
+        userId: id,
+      });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     const targetUserId = id;
 
-    const [projectsDirect, subprojectsDirect, activitiesDirect] = await Promise.all([
-      // Direct projects where the user is a member
-      Project.findAll({
-        attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
-        include: [
-          {
-            model: User,
-            as: 'members',
-            attributes: [],
-            through: { attributes: [] },
-            where: { id: targetUserId },
-            required: true,
-          },
-        ],
-        order: [['name', 'ASC']],
-      }),
-      // Direct subprojects where the user is a member (include parent project)
-      Subproject.findAll({
-        attributes: ['id', 'name', 'description', 'category', 'status', 'projectId', 'createdAt', 'updatedAt'],
-        include: [
-          {
-            model: User,
-            as: 'members',
-            attributes: [],
-            through: { attributes: [] },
-            where: { id: targetUserId },
-            required: true,
-          },
-          {
-            model: Project,
-            as: 'project',
-            attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
-          },
-        ],
-        order: [['name', 'ASC']],
-      }),
-      // Direct activities where the user is a member (include parent subproject and project)
-      Activity.findAll({
-        attributes: ['id', 'name', 'description', 'category', 'frequency', 'status', 'subprojectId', 'createdAt', 'updatedAt'],
-        include: [
-          {
-            model: User,
-            as: 'members',
-            attributes: [],
-            through: { attributes: [] },
-            where: { id: targetUserId },
-            required: true,
-          },
-          {
-            model: Subproject,
-            as: 'subproject',
-            attributes: ['id', 'name', 'description', 'category', 'status', 'projectId', 'createdAt', 'updatedAt'],
-            include: [
-              {
-                model: Project,
-                as: 'project',
-                attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
-              },
-            ],
-          },
-        ],
-      }),
-    ]);
+    const [projectsDirect, subprojectsDirect, activitiesDirect] =
+      await Promise.all([
+        // Direct projects where the user is a member
+        Project.findAll({
+          attributes: [
+            "id",
+            "name",
+            "description",
+            "category",
+            "status",
+            "createdAt",
+            "updatedAt",
+          ],
+          include: [
+            {
+              model: User,
+              as: "members",
+              attributes: [],
+              through: { attributes: [] },
+              where: { id: targetUserId },
+              required: true,
+            },
+          ],
+          order: [["name", "ASC"]],
+        }),
+        // Direct subprojects where the user is a member (include parent project)
+        Subproject.findAll({
+          attributes: [
+            "id",
+            "name",
+            "description",
+            "category",
+            "status",
+            "projectId",
+            "createdAt",
+            "updatedAt",
+          ],
+          include: [
+            {
+              model: User,
+              as: "members",
+              attributes: [],
+              through: { attributes: [] },
+              where: { id: targetUserId },
+              required: true,
+            },
+            {
+              model: Project,
+              as: "project",
+              attributes: [
+                "id",
+                "name",
+                "description",
+                "category",
+                "status",
+                "createdAt",
+                "updatedAt",
+              ],
+            },
+          ],
+          order: [["name", "ASC"]],
+        }),
+        // Direct activities where the user is a member (include parent subproject and project)
+        Activity.findAll({
+          attributes: [
+            "id",
+            "name",
+            "description",
+            "category",
+            "frequency",
+            "status",
+            "subprojectId",
+            "createdAt",
+            "updatedAt",
+          ],
+          include: [
+            {
+              model: User,
+              as: "members",
+              attributes: [],
+              through: { attributes: [] },
+              where: { id: targetUserId },
+              required: true,
+            },
+            {
+              model: Subproject,
+              as: "subproject",
+              attributes: [
+                "id",
+                "name",
+                "description",
+                "category",
+                "status",
+                "projectId",
+                "createdAt",
+                "updatedAt",
+              ],
+              include: [
+                {
+                  model: Project,
+                  as: "project",
+                  attributes: [
+                    "id",
+                    "name",
+                    "description",
+                    "category",
+                    "status",
+                    "createdAt",
+                    "updatedAt",
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      ]);
 
     type ProjectOut = {
       id: string;
@@ -169,7 +249,7 @@ export const getUserProjectsWithSubprojects = async (req: Request, res: Response
       updatedAt?: Date;
     };
 
-    const pickProject = (p: any): Omit<ProjectOut, 'subprojects'> => ({
+    const pickProject = (p: any): Omit<ProjectOut, "subprojects"> => ({
       id: p.id,
       name: p.name,
       description: p.description ?? null,
@@ -179,7 +259,7 @@ export const getUserProjectsWithSubprojects = async (req: Request, res: Response
       updatedAt: p.updatedAt,
     });
 
-    const pickSubproject = (s: any): Omit<SubprojectOut, 'activities'> => ({
+    const pickSubproject = (s: any): Omit<SubprojectOut, "activities"> => ({
       id: s.id,
       name: s.name,
       description: s.description ?? null,
@@ -220,7 +300,17 @@ export const getUserProjectsWithSubprojects = async (req: Request, res: Response
       if (!projId) continue;
 
       if (!projectMap.has(projId)) {
-        const base = parentProject ? pickProject(parentProject) : { id: projId, name: '', description: null, category: null, status: 'active', createdAt: undefined, updatedAt: undefined } as any;
+        const base = parentProject
+          ? pickProject(parentProject)
+          : ({
+              id: projId,
+              name: "",
+              description: null,
+              category: null,
+              status: "active",
+              createdAt: undefined,
+              updatedAt: undefined,
+            } as any);
         projectMap.set(projId, { ...base, subprojects: [] });
       }
 
@@ -244,9 +334,14 @@ export const getUserProjectsWithSubprojects = async (req: Request, res: Response
       }
       const projContainer = projId ? projectMap.get(projId)! : undefined;
       if (projContainer) {
-        let subContainer = projContainer.subprojects.find((sp) => sp.id === subId);
+        let subContainer = projContainer.subprojects.find(
+          (sp) => sp.id === subId,
+        );
         if (!subContainer) {
-          subContainer = { ...pickSubproject(parentSub), activities: [] } as SubprojectOut;
+          subContainer = {
+            ...pickSubproject(parentSub),
+            activities: [],
+          } as SubprojectOut;
           projContainer.subprojects.push(subContainer);
         }
         if (!subContainer.activities.find((ac) => ac.id === aj.id)) {
@@ -257,11 +352,19 @@ export const getUserProjectsWithSubprojects = async (req: Request, res: Response
 
     const projectsNested: ProjectOut[] = Array.from(projectMap.values());
 
-    logger.info('Successfully built nested projects/subprojects/activities for user', { userId: id, count: projectsNested.length });
+    logger.info(
+      "Successfully built nested projects/subprojects/activities for user",
+      { userId: id, count: projectsNested.length },
+    );
     return res.status(200).json({ success: true, items: projectsNested });
   } catch (error: any) {
-    logger.error('Error fetching user projects with subprojects', { userId: id, error: error.message });
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    logger.error("Error fetching user projects with subprojects", {
+      userId: id,
+      error: error.message,
+    });
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal server error" });
   }
 };
 
@@ -272,29 +375,39 @@ export const getUserProjectsWithSubprojects = async (req: Request, res: Response
 export const updateMyProfile = async (req: Request, res: Response) => {
   const authUser = (req as any).user;
   if (!authUser || !authUser.id) {
-    logger.warn('Unauthorized profile update attempt: missing auth user');
-    return res.status(401).json({ success: false, message: 'Unauthorized' });
+    logger.warn("Unauthorized profile update attempt: missing auth user");
+    return res.status(401).json({ success: false, message: "Unauthorized" });
   }
 
   const userId = authUser.id;
-  logger.info('Updating own profile', { userId });
+  logger.info("Updating own profile", { userId });
 
   try {
     const { firstName, lastName, email } = req.body;
 
     const user = await User.findByPk(userId);
     if (!user) {
-      logger.warn('Authenticated user not found for profile update', { userId });
-      return res.status(404).json({ success: false, message: 'User not found' });
+      logger.warn("Authenticated user not found for profile update", {
+        userId,
+      });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     // If email is changing, ensure uniqueness
     if (email && email !== user.email) {
-      logger.info('Self email change requested', { userId, oldEmail: user.email, newEmail: email });
+      logger.info("Self email change requested", {
+        userId,
+        oldEmail: user.email,
+        newEmail: email,
+      });
       const existingUser = await User.findOne({ where: { email } });
       if (existingUser) {
-        logger.warn('Email is already in use during self-update', { email });
-        return res.status(400).json({ success: false, message: 'Email is already in use' });
+        logger.warn("Email is already in use during self-update", { email });
+        return res
+          .status(400)
+          .json({ success: false, message: "Email is already in use" });
       }
     }
 
@@ -306,25 +419,33 @@ export const updateMyProfile = async (req: Request, res: Response) => {
     await user.update(updateData);
 
     // Reload with roles for consistent response shape
-    const updatedUser = await User.findByPk(userId, { include: [{ association: 'roles' }] });
+    const updatedUser = await User.findByPk(userId, {
+      include: [{ association: "roles" }],
+    });
 
     // Audit log
     await AuditLog.create({
       userId,
-      action: 'USER_PROFILE_UPDATED',
-      description: 'User updated own profile information',
+      action: "USER_PROFILE_UPDATED",
+      description: "User updated own profile information",
       details: JSON.stringify({ fields: Object.keys(updateData) }),
     });
 
-    logger.info('Profile updated successfully', { userId });
+    logger.info("Profile updated successfully", { userId });
     return res.status(200).json({
       success: true,
-      message: 'Profile updated successfully',
+      message: "Profile updated successfully",
       data: updatedUser,
     });
   } catch (error: any) {
-    logger.error('Error updating profile', error);
-    return res.status(500).json({ success: false, message: 'Error updating profile', error: error.message });
+    logger.error("Error updating profile", error);
+    return res
+      .status(500)
+      .json({
+        success: false,
+        message: "Error updating profile",
+        error: error.message,
+      });
   }
 };
 
@@ -333,85 +454,138 @@ export const updateMyProfile = async (req: Request, res: Response) => {
  */
 export const getUserById = async (req: Request, res: Response) => {
   const { id } = req.params;
-  logger.info('Getting user by ID', { userId: id });
+  logger.info("Getting user by ID", { userId: id });
 
   try {
     // Load user with roles
     const user = await User.findByPk(id, {
-      include: [{ association: 'roles' }]
+      include: [{ association: "roles" }],
     });
 
     if (!user) {
-      logger.warn('User not found', { userId: id });
+      logger.warn("User not found", { userId: id });
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     // Build nested assignments for the specified user
     const targetUserId = id;
 
-    const [projectsDirect, subprojectsDirect, activitiesDirect] = await Promise.all([
-      Project.findAll({
-        attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
-        include: [
-          {
-            model: User,
-            as: 'members',
-            attributes: [],
-            through: { attributes: [] },
-            where: { id: targetUserId },
-            required: true,
-          },
-        ],
-        order: [['name', 'ASC']],
-      }),
-      Subproject.findAll({
-        attributes: ['id', 'name', 'description', 'category', 'status', 'projectId', 'createdAt', 'updatedAt'],
-        include: [
-          {
-            model: User,
-            as: 'members',
-            attributes: [],
-            through: { attributes: [] },
-            where: { id: targetUserId },
-            required: true,
-          },
-          {
-            model: Project,
-            as: 'project',
-            attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
-          },
-        ],
-        order: [['name', 'ASC']],
-      }),
-      Activity.findAll({
-        attributes: ['id', 'name', 'description', 'category', 'frequency', 'status', 'subprojectId', 'createdAt', 'updatedAt'],
-        include: [
-          {
-            model: User,
-            as: 'members',
-            attributes: [],
-            through: { attributes: [] },
-            where: { id: targetUserId },
-            required: true,
-          },
-          {
-            model: Subproject,
-            as: 'subproject',
-            attributes: ['id', 'name', 'description', 'category', 'status', 'projectId', 'createdAt', 'updatedAt'],
-            include: [
-              {
-                model: Project,
-                as: 'project',
-                attributes: ['id', 'name', 'description', 'category', 'status', 'createdAt', 'updatedAt'],
-              },
-            ],
-          },
-        ],
-      }),
-    ]);
+    const [projectsDirect, subprojectsDirect, activitiesDirect] =
+      await Promise.all([
+        Project.findAll({
+          attributes: [
+            "id",
+            "name",
+            "description",
+            "category",
+            "status",
+            "createdAt",
+            "updatedAt",
+          ],
+          include: [
+            {
+              model: User,
+              as: "members",
+              attributes: [],
+              through: { attributes: [] },
+              where: { id: targetUserId },
+              required: true,
+            },
+          ],
+          order: [["name", "ASC"]],
+        }),
+        Subproject.findAll({
+          attributes: [
+            "id",
+            "name",
+            "description",
+            "category",
+            "status",
+            "projectId",
+            "createdAt",
+            "updatedAt",
+          ],
+          include: [
+            {
+              model: User,
+              as: "members",
+              attributes: [],
+              through: { attributes: [] },
+              where: { id: targetUserId },
+              required: true,
+            },
+            {
+              model: Project,
+              as: "project",
+              attributes: [
+                "id",
+                "name",
+                "description",
+                "category",
+                "status",
+                "createdAt",
+                "updatedAt",
+              ],
+            },
+          ],
+          order: [["name", "ASC"]],
+        }),
+        Activity.findAll({
+          attributes: [
+            "id",
+            "name",
+            "description",
+            "category",
+            "frequency",
+            "status",
+            "subprojectId",
+            "createdAt",
+            "updatedAt",
+          ],
+          include: [
+            {
+              model: User,
+              as: "members",
+              attributes: [],
+              through: { attributes: [] },
+              where: { id: targetUserId },
+              required: true,
+            },
+            {
+              model: Subproject,
+              as: "subproject",
+              attributes: [
+                "id",
+                "name",
+                "description",
+                "category",
+                "status",
+                "projectId",
+                "createdAt",
+                "updatedAt",
+              ],
+              include: [
+                {
+                  model: Project,
+                  as: "project",
+                  attributes: [
+                    "id",
+                    "name",
+                    "description",
+                    "category",
+                    "status",
+                    "createdAt",
+                    "updatedAt",
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      ]);
 
     type ProjectOut = {
       id: string;
@@ -448,7 +622,7 @@ export const getUserById = async (req: Request, res: Response) => {
       updatedAt?: Date;
     };
 
-    const pickProject = (p: any): Omit<ProjectOut, 'subprojects'> => ({
+    const pickProject = (p: any): Omit<ProjectOut, "subprojects"> => ({
       id: p.id,
       name: p.name,
       description: p.description ?? null,
@@ -458,7 +632,7 @@ export const getUserById = async (req: Request, res: Response) => {
       updatedAt: p.updatedAt,
     });
 
-    const pickSubproject = (s: any): Omit<SubprojectOut, 'activities'> => ({
+    const pickSubproject = (s: any): Omit<SubprojectOut, "activities"> => ({
       id: s.id,
       name: s.name,
       description: s.description ?? null,
@@ -497,7 +671,17 @@ export const getUserById = async (req: Request, res: Response) => {
       const projId: string = sj.projectId || parentProject?.id;
 
       if (!projectMap.has(projId)) {
-        const base = parentProject ? pickProject(parentProject) : { id: projId, name: '', description: null, category: null, status: 'active', createdAt: undefined, updatedAt: undefined } as any;
+        const base = parentProject
+          ? pickProject(parentProject)
+          : ({
+              id: projId,
+              name: "",
+              description: null,
+              category: null,
+              status: "active",
+              createdAt: undefined,
+              updatedAt: undefined,
+            } as any);
         projectMap.set(projId, { ...base, subprojects: [] });
       }
 
@@ -521,9 +705,14 @@ export const getUserById = async (req: Request, res: Response) => {
       }
       const projContainer = projId ? projectMap.get(projId)! : undefined;
       if (projContainer) {
-        let subContainer = projContainer.subprojects.find((sp) => sp.id === subId);
+        let subContainer = projContainer.subprojects.find(
+          (sp) => sp.id === subId,
+        );
         if (!subContainer) {
-          subContainer = { ...pickSubproject(parentSub), activities: [] } as SubprojectOut;
+          subContainer = {
+            ...pickSubproject(parentSub),
+            activities: [],
+          } as SubprojectOut;
           projContainer.subprojects.push(subContainer);
         }
         if (!subContainer.activities.find((ac) => ac.id === aj.id)) {
@@ -534,7 +723,10 @@ export const getUserById = async (req: Request, res: Response) => {
 
     const projectsNested: ProjectOut[] = Array.from(projectMap.values());
 
-    logger.info('Successfully retrieved user with assignments', { userId: id, projectsCount: projectsNested.length });
+    logger.info("Successfully retrieved user with assignments", {
+      userId: id,
+      projectsCount: projectsNested.length,
+    });
     return res.status(200).json({
       success: true,
       data: {
@@ -542,7 +734,7 @@ export const getUserById = async (req: Request, res: Response) => {
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
-        roles: user.get('roles'),
+        roles: user.get("roles"),
         status: user.status,
         emailVerified: user.emailVerified,
         twoFactorEnabled: user.twoFactorEnabled,
@@ -556,7 +748,7 @@ export const getUserById = async (req: Request, res: Response) => {
     logger.error(`Error fetching user with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
-      message: 'Internal server error',
+      message: "Internal server error",
     });
   }
 };
@@ -565,59 +757,68 @@ export const getUserById = async (req: Request, res: Response) => {
  * Create a new user
  */
 export const createUser = async (req: Request, res: Response) => {
-  logger.info('Creating new user', { email: req.body.email });
+  logger.info("Creating new user", { email: req.body.email });
 
   try {
     const { firstName, lastName, email, password, roleIds } = req.body;
 
     // Validate required fields
     if (!firstName || !lastName || !email || !password) {
-      logger.warn('Missing required fields for user creation', {
-        providedFields: { firstName: !!firstName, lastName: !!lastName, email: !!email, password: !!password },
+      logger.warn("Missing required fields for user creation", {
+        providedFields: {
+          firstName: !!firstName,
+          lastName: !!lastName,
+          email: !!email,
+          password: !!password,
+        },
       });
       return res.status(400).json({
         success: false,
-        message: 'Please provide all required fields',
+        message: "Please provide all required fields",
       });
     }
 
     // Check if user already exists
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
-      logger.warn('User with email already exists', { email });
+      logger.warn("User with email already exists", { email });
       return res.status(400).json({
         success: false,
-        message: 'User with this email already exists',
+        message: "User with this email already exists",
       });
     }
 
     // Create user
-    logger.info('Creating user record', { email });
+    logger.info("Creating user record", { email });
     const user = await User.create({
       id: uuidv4(),
       firstName,
       lastName,
       email,
       password,
-      status: 'active',
+      status: "active",
       emailVerified: true, // Admin-created users are considered verified
     });
 
     // Assign roles if provided
     if (roleIds && roleIds.length > 0) {
-      logger.info('Assigning roles to user', { userId: user.id, roleIds });
+      logger.info("Assigning roles to user", { userId: user.id, roleIds });
 
       // Validate that no protected roles are being assigned
       try {
         const stringRoleIds = roleIds.map((id: string | number) => String(id));
         await validateNoProtectedRoles(stringRoleIds);
       } catch (error: any) {
-        logger.warn('Attempted to assign protected role during user creation', { email, roleIds, error: error.message });
+        logger.warn("Attempted to assign protected role during user creation", {
+          email,
+          roleIds,
+          error: error.message,
+        });
         // Clean up: delete the created user
         await user.destroy();
         return res.status(403).json({
           success: false,
-          message: error.message || 'Cannot assign protected role',
+          message: error.message || "Cannot assign protected role",
         });
       }
 
@@ -635,42 +836,49 @@ export const createUser = async (req: Request, res: Response) => {
 
         // If no roles found, try to find by index position
         if (roles.length === 0) {
-          logger.info('No roles found by direct ID, trying to find by index', { roleIds });
+          logger.info("No roles found by direct ID, trying to find by index", {
+            roleIds,
+          });
 
           // Get all roles ordered by creation date
           const allRoles = await Role.findAll({
-            order: [['createdAt', 'ASC']],
+            order: [["createdAt", "ASC"]],
           });
 
           // Map numeric IDs to actual role objects
           roles = roleIds
             .map((id: string | number) => {
-              const index = typeof id === 'number' ? id - 1 : parseInt(String(id)) - 1;
-              return index >= 0 && index < allRoles.length ? allRoles[index] : null;
+              const index =
+                typeof id === "number" ? id - 1 : parseInt(String(id)) - 1;
+              return index >= 0 && index < allRoles.length
+                ? allRoles[index]
+                : null;
             })
             .filter((role: Role | null): role is Role => role !== null);
 
-          logger.info('Found roles by index position', {
+          logger.info("Found roles by index position", {
             roleCount: roles.length,
             roleNames: roles.map((r: Role) => r.name),
           });
         }
       } catch (error) {
-        logger.error('Error finding roles', error);
+        logger.error("Error finding roles", error);
         roles = [];
       }
 
       // Double-check: filter out any protected roles
-      const protectedRolesFound = roles.filter(r => isProtectedRole(r.name));
+      const protectedRolesFound = roles.filter((r) => isProtectedRole(r.name));
       if (protectedRolesFound.length > 0) {
-        logger.warn('Protected roles detected and removed from assignment', { 
-          userId: user.id, 
-          protectedRoleNames: protectedRolesFound.map(r => r.name) 
+        logger.warn("Protected roles detected and removed from assignment", {
+          userId: user.id,
+          protectedRoleNames: protectedRolesFound.map((r) => r.name),
         });
         await user.destroy(); // Clean up user
         return res.status(403).json({
           success: false,
-          message: 'Cannot assign protected role(s): ' + protectedRolesFound.map(r => r.name).join(', '),
+          message:
+            "Cannot assign protected role(s): " +
+            protectedRolesFound.map((r) => r.name).join(", "),
         });
       }
 
@@ -680,31 +888,34 @@ export const createUser = async (req: Request, res: Response) => {
             UserRole.create({
               userId: user.id,
               roleId: role.id,
-            })
-          )
+            }),
+          ),
         );
-        logger.info('Roles assigned successfully', { userId: user.id, roleCount: roles.length });
+        logger.info("Roles assigned successfully", {
+          userId: user.id,
+          roleCount: roles.length,
+        });
       } else {
-        logger.warn('No valid roles found to assign', { roleIds });
+        logger.warn("No valid roles found to assign", { roleIds });
       }
     }
 
     // Get user with roles
     const userWithRoles = await User.findByPk(user.id, {
-      include: [{ model: Role, as: 'roles' }],
+      include: [{ model: Role, as: "roles" }],
     });
 
-    logger.info('User created successfully', { userId: user.id });
+    logger.info("User created successfully", { userId: user.id });
     return res.status(201).json({
       success: true,
-      message: 'User created successfully',
+      message: "User created successfully",
       data: userWithRoles,
     });
   } catch (error: any) {
-    logger.error('Error creating user', error);
+    logger.error("Error creating user", error);
     return res.status(500).json({
       success: false,
-      message: 'Error creating user',
+      message: "Error creating user",
       error: error.message,
     });
   }
@@ -715,7 +926,7 @@ export const createUser = async (req: Request, res: Response) => {
  */
 export const updateUser = async (req: Request, res: Response) => {
   const { id } = req.params;
-  logger.info('Updating user', { userId: id });
+  logger.info("Updating user", { userId: id });
 
   try {
     const { firstName, lastName, email, roleIds, status } = req.body;
@@ -723,22 +934,26 @@ export const updateUser = async (req: Request, res: Response) => {
     // Find user
     const user = await User.findByPk(id);
     if (!user) {
-      logger.warn('User not found for update', { userId: id });
+      logger.warn("User not found for update", { userId: id });
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
     // Check if email is being changed and if it's already in use
     if (email && email !== user.email) {
-      logger.info('Email change requested', { userId: id, oldEmail: user.email, newEmail: email });
+      logger.info("Email change requested", {
+        userId: id,
+        oldEmail: user.email,
+        newEmail: email,
+      });
       const existingUser = await User.findOne({ where: { email } });
       if (existingUser) {
-        logger.warn('Email is already in use', { email });
+        logger.warn("Email is already in use", { email });
         return res.status(400).json({
           success: false,
-          message: 'Email is already in use',
+          message: "Email is already in use",
         });
       }
     }
@@ -750,22 +965,29 @@ export const updateUser = async (req: Request, res: Response) => {
     if (email) updateData.email = email;
     if (status) updateData.status = status;
 
-    logger.info('Updating user data', { userId: id, fields: Object.keys(updateData) });
+    logger.info("Updating user data", {
+      userId: id,
+      fields: Object.keys(updateData),
+    });
     await user.update(updateData);
 
     // Update roles if provided
     if (roleIds && Array.isArray(roleIds)) {
-      logger.info('Updating user roles', { userId: id, roleIds });
+      logger.info("Updating user roles", { userId: id, roleIds });
 
       // Validate that no protected roles are being assigned
       try {
         const stringRoleIds = roleIds.map((id: string | number) => String(id));
         await validateNoProtectedRoles(stringRoleIds);
       } catch (error: any) {
-        logger.warn('Attempted to assign protected role', { userId: id, roleIds, error: error.message });
+        logger.warn("Attempted to assign protected role", {
+          userId: id,
+          roleIds,
+          error: error.message,
+        });
         return res.status(403).json({
           success: false,
-          message: error.message || 'Cannot assign protected role',
+          message: error.message || "Cannot assign protected role",
         });
       }
 
@@ -792,39 +1014,44 @@ export const updateUser = async (req: Request, res: Response) => {
 
         // If no roles found, try to find by index position
         if (roles.length === 0) {
-          logger.info('No roles found by direct ID, trying to find by index', { roleIds });
+          logger.info("No roles found by direct ID, trying to find by index", {
+            roleIds,
+          });
 
           // Get all roles ordered by creation date
           const allRoles = await Role.findAll({
-            order: [['createdAt', 'ASC']],
+            order: [["createdAt", "ASC"]],
           });
 
           // Map numeric IDs to actual role objects
           roles = roleIds
             .map((id: string | number) => {
-              const index = typeof id === 'number' ? id - 1 : parseInt(String(id)) - 1;
-              return index >= 0 && index < allRoles.length ? allRoles[index] : null;
+              const index =
+                typeof id === "number" ? id - 1 : parseInt(String(id)) - 1;
+              return index >= 0 && index < allRoles.length
+                ? allRoles[index]
+                : null;
             })
             .filter((role: Role | null): role is Role => role !== null);
 
-          logger.info('Found roles by index position', {
+          logger.info("Found roles by index position", {
             roleCount: roles.length,
             roleNames: roles.map((r: Role) => r.name),
           });
         }
       } catch (error) {
-        logger.error('Error finding roles', error);
+        logger.error("Error finding roles", error);
         roles = [];
       }
 
       // Double-check: filter out any protected roles that might have slipped through
-      const protectedRoles = roles.filter(r => isProtectedRole(r.name));
+      const protectedRoles = roles.filter((r) => isProtectedRole(r.name));
       if (protectedRoles.length > 0) {
-        logger.warn('Protected roles detected and removed from assignment', { 
-          userId: id, 
-          protectedRoleNames: protectedRoles.map(r => r.name) 
+        logger.warn("Protected roles detected and removed from assignment", {
+          userId: id,
+          protectedRoleNames: protectedRoles.map((r) => r.name),
         });
-        roles = roles.filter(r => !isProtectedRole(r.name));
+        roles = roles.filter((r) => !isProtectedRole(r.name));
       }
 
       if (roles.length > 0) {
@@ -833,31 +1060,34 @@ export const updateUser = async (req: Request, res: Response) => {
             UserRole.create({
               userId: id,
               roleId: role.id,
-            })
-          )
+            }),
+          ),
         );
-        logger.info('Roles updated successfully', { userId: id, roleCount: roles.length });
+        logger.info("Roles updated successfully", {
+          userId: id,
+          roleCount: roles.length,
+        });
       } else {
-        logger.warn('No valid roles found to assign', { roleIds });
+        logger.warn("No valid roles found to assign", { roleIds });
       }
     }
 
     // Get updated user with roles
     const updatedUser = await User.findByPk(id, {
-      include: [{ model: Role, as: 'roles' }],
+      include: [{ model: Role, as: "roles" }],
     });
 
-    logger.info('User updated successfully', { userId: id });
+    logger.info("User updated successfully", { userId: id });
     return res.status(200).json({
       success: true,
-      message: 'User updated successfully',
+      message: "User updated successfully",
       data: updatedUser,
     });
   } catch (error: any) {
     logger.error(`Error updating user with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
-      message: 'Error updating user',
+      message: "Error updating user",
       error: error.message,
     });
   }
@@ -868,45 +1098,45 @@ export const updateUser = async (req: Request, res: Response) => {
  */
 export const deleteUser = async (req: Request, res: Response) => {
   const { id } = req.params;
-  logger.info('Archiving user', { userId: id });
+  logger.info("Archiving user", { userId: id });
 
   try {
     const user = await User.findByPk(id);
 
     if (!user) {
-      logger.warn('User not found for archiving', { userId: id });
+      logger.warn("User not found for archiving", { userId: id });
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
     // Check if already archived
     if (user.isArchived) {
-      logger.warn('User already archived', { userId: id });
+      logger.warn("User already archived", { userId: id });
       return res.status(400).json({
         success: false,
-        message: 'User is already archived',
+        message: "User is already archived",
       });
     }
 
     // Archive user
-    logger.info('Archiving user record', { userId: id });
+    logger.info("Archiving user record", { userId: id });
     await user.update({
       isArchived: true,
       archivedAt: new Date(),
     });
 
-    logger.info('User archived successfully', { userId: id });
+    logger.info("User archived successfully", { userId: id });
     return res.status(200).json({
       success: true,
-      message: 'User archived successfully',
+      message: "User archived successfully",
     });
   } catch (error: any) {
     logger.error(`Error archiving user with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
-      message: 'Error archiving user',
+      message: "Error archiving user",
       error: error.message,
     });
   }
@@ -917,47 +1147,47 @@ export const deleteUser = async (req: Request, res: Response) => {
  */
 export const resetPassword = async (req: Request, res: Response) => {
   const { id } = req.params;
-  logger.info('Resetting user password', { userId: id });
+  logger.info("Resetting user password", { userId: id });
 
   try {
     const { newPassword } = req.body;
 
     if (!newPassword) {
-      logger.warn('New password not provided for reset', { userId: id });
+      logger.warn("New password not provided for reset", { userId: id });
       return res.status(400).json({
         success: false,
-        message: 'New password is required',
+        message: "New password is required",
       });
     }
 
     const user = await User.findByPk(id);
 
     if (!user) {
-      logger.warn('User not found for password reset', { userId: id });
+      logger.warn("User not found for password reset", { userId: id });
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
     // Hash the new password
-    const bcrypt = await import('bcryptjs');
+    const bcrypt = await import("bcryptjs");
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     // Use setDataValue to bypass the model setter (which would re-hash)
-    user.setDataValue('password', hashedPassword);
+    user.setDataValue("password", hashedPassword);
     await user.save();
 
-    logger.info('Password reset successful', { userId: id });
+    logger.info("Password reset successful", { userId: id });
     return res.status(200).json({
       success: true,
-      message: 'Password reset successful',
+      message: "Password reset successful",
     });
   } catch (error: any) {
     logger.error(`Error resetting password for user with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
-      message: 'Error resetting password',
+      message: "Error resetting password",
       error: error.message,
     });
   }
@@ -967,80 +1197,114 @@ export const resetPassword = async (req: Request, res: Response) => {
  * Invite a new user with specified roles
  */
 export const inviteUser = async (req: Request, res: Response) => {
-  logger.info('Inviting new user', { email: req.body.email });
+  logger.info("Inviting new user", { email: req.body.email });
 
   try {
-    const { firstName, lastName, email, roleIds, message, projectId, subprojectId } = req.body;
+    const {
+      firstName,
+      lastName,
+      email,
+      roleIds,
+      message,
+      projectId,
+      subprojectId,
+    } = req.body;
     const invitingUser = (req as any).user;
-    logger.info('Invitation initiated by', { invitingUserId: invitingUser.id });
+    logger.info("Invitation initiated by", { invitingUserId: invitingUser.id });
 
     // Validate required fields
     if (!firstName || !lastName || !email || !roleIds || !roleIds.length) {
-      logger.warn('Missing required fields for user invitation', {
-        providedFields: { firstName: !!firstName, lastName: !!lastName, email: !!email, roleIds: !!roleIds && roleIds.length > 0 },
+      logger.warn("Missing required fields for user invitation", {
+        providedFields: {
+          firstName: !!firstName,
+          lastName: !!lastName,
+          email: !!email,
+          roleIds: !!roleIds && roleIds.length > 0,
+        },
       });
       return res.status(400).json({
         success: false,
-        message: 'Please provide all required fields: firstName, lastName, email, and roleIds',
+        message:
+          "Please provide all required fields: firstName, lastName, email, and roleIds",
       });
     }
 
     // Check if user already exists
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
-      logger.warn('User with email already exists', { email });
+      logger.warn("User with email already exists", { email });
       return res.status(400).json({
         success: false,
-        message: 'User with this email already exists',
+        message: "User with this email already exists",
       });
     }
 
     // Generate a random password (user will reset this)
-    logger.info('Generating temporary credentials', { email });
-    const temporaryPassword = crypto.randomBytes(12).toString('hex');
+    logger.info("Generating temporary credentials", { email });
+    const temporaryPassword = crypto.randomBytes(12).toString("hex");
 
     // Generate verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationToken = crypto.randomBytes(32).toString("hex");
 
     // Set token expiry (7 days from now)
     const tokenExpiry = new Date();
     tokenExpiry.setDate(tokenExpiry.getDate() + 7);
-    logger.info('Token expiry set', { email, expiryDate: tokenExpiry });
+    logger.info("Token expiry set", { email, expiryDate: tokenExpiry });
 
     // Optional batch assignments: accept either assignments: [{entityId, entityType}], or entities: [...], or fallback to single projectId/subprojectId
     const rawAssign = Array.isArray(req.body?.assignments)
       ? req.body.assignments
-      : (Array.isArray(req.body?.entities) ? req.body.entities : []);
+      : Array.isArray(req.body?.entities)
+        ? req.body.entities
+        : [];
     // Validate provided association targets if any (batch-aware)
     let targetProject: Project | null = null;
     let targetSubproject: Subproject | null = null;
-    const associations: Array<{ entityId: string; entityType: 'project' | 'subproject' }> =
+    const associations: Array<{
+      entityId: string;
+      entityType: "project" | "subproject";
+    }> =
       Array.isArray(rawAssign) && rawAssign.length > 0
         ? rawAssign
-        : (projectId || subprojectId)
-          ? [{ entityId: String(subprojectId || projectId), entityType: subprojectId ? 'subproject' as const : 'project' as const }]
+        : projectId || subprojectId
+          ? [
+              {
+                entityId: String(subprojectId || projectId),
+                entityType: subprojectId
+                  ? ("subproject" as const)
+                  : ("project" as const),
+              },
+            ]
           : [];
 
     // Normalize and dedupe associations
-    const normalized: Array<{ entityId: string; entityType: 'project' | 'subproject' }> = [];
+    const normalized: Array<{
+      entityId: string;
+      entityType: "project" | "subproject";
+    }> = [];
     const seen = new Set<string>();
     for (const a of associations) {
-      const eId = String(a?.entityId || '').trim();
-      const eType = String(a?.entityType || '').trim() as 'project' | 'subproject';
-      if (!eId || !['project', 'subproject'].includes(eType)) continue;
+      const eId = String(a?.entityId || "").trim();
+      const eType = String(a?.entityType || "").trim() as
+        | "project"
+        | "subproject";
+      if (!eId || !["project", "subproject"].includes(eType)) continue;
       const k = `${eType}:${eId}`;
-      if (!seen.has(k)) { seen.add(k); normalized.push({ entityId: eId, entityType: eType }); }
+      if (!seen.has(k)) {
+        seen.add(k);
+        normalized.push({ entityId: eId, entityType: eType });
+      }
     }
 
     // Create user with invited status
-    logger.info('Creating invited user', { email });
+    logger.info("Creating invited user", { email });
     const user = await User.create({
       id: uuidv4(),
       firstName,
       lastName,
       email,
       password: temporaryPassword, // This will be hashed by the User model
-      status: 'invited',
+      status: "invited",
       emailVerified: false,
       verificationToken,
       tokenExpiry,
@@ -1048,20 +1312,35 @@ export const inviteUser = async (req: Request, res: Response) => {
     });
 
     // Assign roles
-    logger.info('Assigning roles to invited user', { userId: user.id, roleIds });
+    logger.info("Assigning roles to invited user", {
+      userId: user.id,
+      roleIds,
+    });
 
-    // Validate that no protected roles are being assigned
-    try {
-      const stringRoleIds = roleIds.map((id: string | number) => String(id));
-      await validateNoProtectedRoles(stringRoleIds);
-    } catch (error: any) {
-      logger.warn('Attempted to assign protected role during invitation', { email: email, roleIds, error: error.message });
-      // Clean up: delete the created user
-      await user.destroy();
-      return res.status(403).json({
-        success: false,
-        message: error.message || 'Cannot assign protected role',
-      });
+    // SuperAdmin can assign any role; others are blocked from assigning protected roles
+    const inviterRoles = ((req as any).userRoles || [])
+      .map((r: any) => (typeof r === "string" ? r : r?.name))
+      .filter(Boolean);
+    const inviterIsSuperAdmin = inviterRoles.includes(ROLES.SUPER_ADMIN);
+
+    // Validate that no protected roles are being assigned (skip for SuperAdmin)
+    if (!inviterIsSuperAdmin) {
+      try {
+        const stringRoleIds = roleIds.map((id: string | number) => String(id));
+        await validateNoProtectedRoles(stringRoleIds);
+      } catch (error: any) {
+        logger.warn("Attempted to assign protected role during invitation", {
+          email: email,
+          roleIds,
+          error: error.message,
+        });
+        // Clean up: delete the created user
+        await user.destroy();
+        return res.status(403).json({
+          success: false,
+          message: error.message || "Cannot assign protected role",
+        });
+      }
     }
 
     let roles: Role[] = [];
@@ -1078,43 +1357,52 @@ export const inviteUser = async (req: Request, res: Response) => {
 
       // If no roles found, try to find by index position
       if (roles.length === 0) {
-        logger.info('No roles found by direct ID, trying to find by index', { roleIds });
+        logger.info("No roles found by direct ID, trying to find by index", {
+          roleIds,
+        });
 
         // Get all roles ordered by creation date
         const allRoles = await Role.findAll({
-          order: [['createdAt', 'ASC']],
+          order: [["createdAt", "ASC"]],
         });
 
         // Map numeric IDs to actual role objects
         roles = roleIds
           .map((id: string | number) => {
-            const index = typeof id === 'number' ? id - 1 : parseInt(String(id)) - 1;
-            return index >= 0 && index < allRoles.length ? allRoles[index] : null;
+            const index =
+              typeof id === "number" ? id - 1 : parseInt(String(id)) - 1;
+            return index >= 0 && index < allRoles.length
+              ? allRoles[index]
+              : null;
           })
           .filter((role: Role | null): role is Role => role !== null);
 
-        logger.info('Found roles by index position', {
+        logger.info("Found roles by index position", {
           roleCount: roles.length,
           roleNames: roles.map((r: Role) => r.name),
         });
       }
     } catch (error) {
-      logger.error('Error finding roles', error);
+      logger.error("Error finding roles", error);
       roles = [];
     }
 
-    // Double-check: filter out any protected roles
-    const protectedRoles = roles.filter(r => isProtectedRole(r.name));
-    if (protectedRoles.length > 0) {
-      logger.warn('Protected roles detected and removed from assignment', { 
-        userId: user.id, 
-        protectedRoleNames: protectedRoles.map(r => r.name) 
-      });
-      await user.destroy(); // Clean up user
-      return res.status(403).json({
-        success: false,
-        message: 'Cannot assign protected role(s): ' + protectedRoles.map(r => r.name).join(', '),
-      });
+    // Double-check: filter out any protected roles (skip for SuperAdmin)
+    if (!inviterIsSuperAdmin) {
+      const protectedRoles = roles.filter((r) => isProtectedRole(r.name));
+      if (protectedRoles.length > 0) {
+        logger.warn("Protected roles detected and removed from assignment", {
+          userId: user.id,
+          protectedRoleNames: protectedRoles.map((r) => r.name),
+        });
+        await user.destroy(); // Clean up user
+        return res.status(403).json({
+          success: false,
+          message:
+            "Cannot assign protected role(s): " +
+            protectedRoles.map((r) => r.name).join(", "),
+        });
+      }
     }
 
     if (roles.length > 0) {
@@ -1123,50 +1411,83 @@ export const inviteUser = async (req: Request, res: Response) => {
           UserRole.create({
             userId: user.id,
             roleId: role.id,
-          })
-        )
+          }),
+        ),
       );
-      logger.info('Roles assigned successfully', { userId: user.id, roleCount: roles.length });
+      logger.info("Roles assigned successfully", {
+        userId: user.id,
+        roleCount: roles.length,
+      });
     } else {
-      logger.warn('No valid roles found to assign', { roleIds });
+      logger.warn("No valid roles found to assign", { roleIds });
     }
 
     // Automatically associate user with one or multiple entities if provided
-    const assignmentResults: Array<{ entityId: string; entityType: 'project' | 'subproject'; created: boolean }> = [];
+    const assignmentResults: Array<{
+      entityId: string;
+      entityType: "project" | "subproject";
+      created: boolean;
+    }> = [];
     if (normalized.length > 0) {
       for (const { entityId, entityType } of normalized) {
         try {
-          if (entityType === 'subproject') {
+          if (entityType === "subproject") {
             const sub = await Subproject.findByPk(entityId);
-            if (!sub) { assignmentResults.push({ entityId, entityType, created: false }); continue; }
+            if (!sub) {
+              assignmentResults.push({ entityId, entityType, created: false });
+              continue;
+            }
             const [rel, created] = await SubprojectUser.findOrCreate({
               where: { userId: user.id, subprojectId: sub.id },
               defaults: { id: uuidv4(), userId: user.id, subprojectId: sub.id },
             });
-            assignmentResults.push({ entityId: sub.id as any, entityType, created });
+            assignmentResults.push({
+              entityId: sub.id as any,
+              entityType,
+              created,
+            });
             await AuditLog.create({
               userId: invitingUser.id,
-              action: 'USER_ASSIGNED_TO_SUBPROJECT',
+              action: "USER_ASSIGNED_TO_SUBPROJECT",
               description: `Invited user assigned to subproject '${sub.name}'`,
-              details: JSON.stringify({ userId: user.id, subprojectId: sub.id, created }),
+              details: JSON.stringify({
+                userId: user.id,
+                subprojectId: sub.id,
+                created,
+              }),
             });
           } else {
             const proj = await Project.findByPk(entityId);
-            if (!proj) { assignmentResults.push({ entityId, entityType, created: false }); continue; }
+            if (!proj) {
+              assignmentResults.push({ entityId, entityType, created: false });
+              continue;
+            }
             const [rel, created] = await ProjectUser.findOrCreate({
               where: { userId: user.id, projectId: proj.id },
               defaults: { id: uuidv4(), userId: user.id, projectId: proj.id },
             });
-            assignmentResults.push({ entityId: proj.id as any, entityType, created });
+            assignmentResults.push({
+              entityId: proj.id as any,
+              entityType,
+              created,
+            });
             await AuditLog.create({
               userId: invitingUser.id,
-              action: 'USER_ASSIGNED_TO_PROJECT',
+              action: "USER_ASSIGNED_TO_PROJECT",
               description: `Invited user assigned to project '${proj.name}'`,
-              details: JSON.stringify({ userId: user.id, projectId: proj.id, created }),
+              details: JSON.stringify({
+                userId: user.id,
+                projectId: proj.id,
+                created,
+              }),
             });
           }
         } catch (assignErr: any) {
-          logger.error('Failed assigning user during invitation', { entityId, entityType, error: assignErr?.message });
+          logger.error("Failed assigning user during invitation", {
+            entityId,
+            entityType,
+            error: assignErr?.message,
+          });
           assignmentResults.push({ entityId, entityType, created: false });
         }
       }
@@ -1178,20 +1499,37 @@ export const inviteUser = async (req: Request, res: Response) => {
           try {
             const [rel, created] = await SubprojectUser.findOrCreate({
               where: { userId: user.id, subprojectId: targetSubproject.id },
-              defaults: { id: uuidv4(), userId: user.id, subprojectId: targetSubproject.id },
+              defaults: {
+                id: uuidv4(),
+                userId: user.id,
+                subprojectId: targetSubproject.id,
+              },
             });
-            assignmentResults.push({ entityId: targetSubproject.id as any, entityType: 'subproject', created });
+            assignmentResults.push({
+              entityId: targetSubproject.id as any,
+              entityType: "subproject",
+              created,
+            });
             await AuditLog.create({
               userId: invitingUser.id,
-              action: 'USER_ASSIGNED_TO_SUBPROJECT',
+              action: "USER_ASSIGNED_TO_SUBPROJECT",
               description: `Invited user assigned to subproject '${targetSubproject.name}'`,
-              details: JSON.stringify({ userId: user.id, subprojectId: targetSubproject.id, created }),
+              details: JSON.stringify({
+                userId: user.id,
+                subprojectId: targetSubproject.id,
+                created,
+              }),
             });
           } catch (e: any) {
-            logger.error('Failed assigning user to subproject during invitation', { error: e?.message });
+            logger.error(
+              "Failed assigning user to subproject during invitation",
+              { error: e?.message },
+            );
           }
         } else {
-          return res.status(404).json({ success: false, message: 'Subproject not found' });
+          return res
+            .status(404)
+            .json({ success: false, message: "Subproject not found" });
         }
       } else if (projectId) {
         targetProject = await Project.findByPk(projectId);
@@ -1199,48 +1537,70 @@ export const inviteUser = async (req: Request, res: Response) => {
           try {
             const [rel, created] = await ProjectUser.findOrCreate({
               where: { userId: user.id, projectId: targetProject.id },
-              defaults: { id: uuidv4(), userId: user.id, projectId: targetProject.id },
+              defaults: {
+                id: uuidv4(),
+                userId: user.id,
+                projectId: targetProject.id,
+              },
             });
-            assignmentResults.push({ entityId: targetProject.id as any, entityType: 'project', created });
+            assignmentResults.push({
+              entityId: targetProject.id as any,
+              entityType: "project",
+              created,
+            });
             await AuditLog.create({
               userId: invitingUser.id,
-              action: 'USER_ASSIGNED_TO_PROJECT',
+              action: "USER_ASSIGNED_TO_PROJECT",
               description: `Invited user assigned to project '${targetProject.name}'`,
-              details: JSON.stringify({ userId: user.id, projectId: targetProject.id, created }),
+              details: JSON.stringify({
+                userId: user.id,
+                projectId: targetProject.id,
+                created,
+              }),
             });
           } catch (e: any) {
-            logger.error('Failed assigning user to project during invitation', { error: e?.message });
+            logger.error("Failed assigning user to project during invitation", {
+              error: e?.message,
+            });
           }
         } else {
-          return res.status(404).json({ success: false, message: 'Project not found' });
+          return res
+            .status(404)
+            .json({ success: false, message: "Project not found" });
         }
       }
     }
 
     // Get user with roles
     const userWithRoles = await User.findByPk(user.id, {
-      include: [{ model: Role, as: 'roles' }],
+      include: [{ model: Role, as: "roles" }],
     });
 
     // Prepare accept-invitation link once so it can be returned in response
-    const rawAcceptBase = `${process.env.FRONTEND_URL}/accept-invitation` || 'http://localhost:5173/accept-invitation';
-    const acceptBase = /^(https?:)\/\//i.test(rawAcceptBase) ? rawAcceptBase : `https://${rawAcceptBase}`;
+    const rawAcceptBase =
+      `${process.env.FRONTEND_URL}/accept-invitation` ||
+      "http://localhost:5173/accept-invitation";
+    const acceptBase = /^(https?:)\/\//i.test(rawAcceptBase)
+      ? rawAcceptBase
+      : `https://${rawAcceptBase}`;
     const acceptInvitationUrl = new URL(acceptBase);
-    acceptInvitationUrl.searchParams.set('token', verificationToken);
-    acceptInvitationUrl.searchParams.set('email', email);
+    acceptInvitationUrl.searchParams.set("token", verificationToken);
+    acceptInvitationUrl.searchParams.set("email", email);
     const acceptInvitationLink = acceptInvitationUrl.toString();
 
     // TODO: Send invitation email with verification link
-    logger.info('User invited successfully, email should be sent', { userId: user.id });
+    logger.info("User invited successfully, email should be sent", {
+      userId: user.id,
+    });
 
     try {
       // Calculate expiration date for display in email
       const expirationDate = new Date();
       expirationDate.setDate(expirationDate.getDate() + 7);
-      const formattedExpiration = expirationDate.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
+      const formattedExpiration = expirationDate.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
       });
       // Send invitation email
       await sendInvitationEmail({
@@ -1252,16 +1612,16 @@ export const inviteUser = async (req: Request, res: Response) => {
         message,
       });
 
-      logger.info('Invitation email sent successfully', { email });
+      logger.info("Invitation email sent successfully", { email });
     } catch (emailError) {
-      logger.error('Failed to send invitation email', emailError);
+      logger.error("Failed to send invitation email", emailError);
       // We don't want to fail the whole invitation process if just the email fails
       // The user is still created in the database
     }
 
     return res.status(201).json({
       success: true,
-      message: 'User invited successfully',
+      message: "User invited successfully",
       data: {
         user: userWithRoles,
         verificationToken, // In production, remove this from the response
@@ -1270,10 +1630,10 @@ export const inviteUser = async (req: Request, res: Response) => {
       },
     });
   } catch (error: any) {
-    logger.error('Error inviting user', error);
+    logger.error("Error inviting user", error);
     return res.status(500).json({
       success: false,
-      message: 'Error inviting user',
+      message: "Error inviting user",
       error: error.message,
     });
   }
@@ -1284,19 +1644,22 @@ export const inviteUser = async (req: Request, res: Response) => {
  */
 export const verifyEmail = async (req: Request, res: Response) => {
   const { token, email } = req.query;
-  logger.info('Verifying email', { email });
+  logger.info("Verifying email", { email });
 
   try {
     if (!token || !email) {
-      logger.warn('Missing verification token or email', { token: !!token, email: !!email });
+      logger.warn("Missing verification token or email", {
+        token: !!token,
+        email: !!email,
+      });
       return res.status(400).json({
         success: false,
-        message: 'Verification token and email are required',
+        message: "Verification token and email are required",
       });
     }
 
     // Find user by email and token
-    logger.info('Finding user by email and token', { email });
+    logger.info("Finding user by email and token", { email });
     const user = await User.findOne({
       where: {
         email,
@@ -1306,15 +1669,18 @@ export const verifyEmail = async (req: Request, res: Response) => {
     });
 
     if (!user) {
-      logger.warn('Invalid or expired verification token', { email });
+      logger.warn("Invalid or expired verification token", { email });
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired verification token',
+        message: "Invalid or expired verification token",
       });
     }
 
     // Mark email as verified but keep token for accept step
-    logger.info('Marking email as verified; awaiting accept-invitation to activate account', { userId: user.id });
+    logger.info(
+      "Marking email as verified; awaiting accept-invitation to activate account",
+      { userId: user.id },
+    );
     await user.update({
       emailVerified: true,
     });
@@ -1322,31 +1688,38 @@ export const verifyEmail = async (req: Request, res: Response) => {
     // Audit log
     await AuditLog.create({
       userId: user.id,
-      action: 'USER_EMAIL_VERIFIED',
+      action: "USER_EMAIL_VERIFIED",
       description: `User email verified`,
       details: JSON.stringify({ email: user.email }),
     });
 
     // If a frontend accept invitation URL is configured, redirect user there with token and email
     const acceptUrl = process.env.FRONTEND_ACCEPT_INVITE_URL;
-    if (acceptUrl && typeof acceptUrl === 'string') {
+    if (acceptUrl && typeof acceptUrl === "string") {
       const redirectTo = new URL(acceptUrl);
-      redirectTo.searchParams.set('token', String(token));
-      redirectTo.searchParams.set('email', String(email));
-      logger.info('Email verified successfully; redirecting to accept invitation UI', { userId: user.id, redirectTo: redirectTo.toString() });
+      redirectTo.searchParams.set("token", String(token));
+      redirectTo.searchParams.set("email", String(email));
+      logger.info(
+        "Email verified successfully; redirecting to accept invitation UI",
+        { userId: user.id, redirectTo: redirectTo.toString() },
+      );
       return res.redirect(302, redirectTo.toString());
     }
 
-    logger.info('Email verified successfully (token retained for acceptance), no FRONTEND_URL configured', { userId: user.id });
+    logger.info(
+      "Email verified successfully (token retained for acceptance), no FRONTEND_URL configured",
+      { userId: user.id },
+    );
     return res.status(200).json({
       success: true,
-      message: 'Email verified. Please set your password to activate your account.',
+      message:
+        "Email verified. Please set your password to activate your account.",
     });
   } catch (error: any) {
-    logger.error('Error verifying email', error);
+    logger.error("Error verifying email", error);
     return res.status(500).json({
       success: false,
-      message: 'Error verifying email',
+      message: "Error verifying email",
       error: error.message,
     });
   }
@@ -1356,51 +1729,57 @@ export const verifyEmail = async (req: Request, res: Response) => {
  * Accept an invitation: set password and activate account
  */
 export const acceptInvitation = async (req: Request, res: Response) => {
-  logger.info('Accept invitation attempt');
+  logger.info("Accept invitation attempt");
 
   try {
     const { token, email, password } = req.body;
 
     // Validate input
     if (!token || !email || !password) {
-      logger.warn('Missing fields for accepting invitation', { token: !!token, email: !!email, hasPassword: !!password });
+      logger.warn("Missing fields for accepting invitation", {
+        token: !!token,
+        email: !!email,
+        hasPassword: !!password,
+      });
       return res.status(400).json({
         success: false,
-        message: 'Token, email and password are required',
+        message: "Token, email and password are required",
       });
     }
 
-    if (typeof password !== 'string' || password.length < 8) {
-      logger.warn('Password does not meet complexity requirements');
+    if (typeof password !== "string" || password.length < 8) {
+      logger.warn("Password does not meet complexity requirements");
       return res.status(400).json({
         success: false,
-        message: 'Password must be at least 8 characters long',
+        message: "Password must be at least 8 characters long",
       });
     }
 
     // Find user by email and token and ensure token not expired
-    const user = await User.scope('withPassword').findOne({
+    const user = await User.scope("withPassword").findOne({
       where: {
         email,
         verificationToken: token,
         tokenExpiry: { [Op.gt]: new Date() },
       },
-      include: [{ association: 'roles' }],
+      include: [{ association: "roles" }],
     });
 
     if (!user) {
-      logger.warn('Invalid or expired token during accept-invitation', { email });
+      logger.warn("Invalid or expired token during accept-invitation", {
+        email,
+      });
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired token',
+        message: "Invalid or expired token",
       });
     }
 
     // Update password and activate account
-    logger.info('Activating user and setting password', { userId: user.id });
+    logger.info("Activating user and setting password", { userId: user.id });
     await user.update({
       password, // will be hashed by model setter
-      status: 'active',
+      status: "active",
       emailVerified: true,
       verificationToken: null,
       tokenExpiry: null,
@@ -1409,32 +1788,34 @@ export const acceptInvitation = async (req: Request, res: Response) => {
     // Audit log
     await AuditLog.create({
       userId: user.id,
-      action: 'USER_INVITATION_ACCEPTED',
+      action: "USER_INVITATION_ACCEPTED",
       description: `User accepted invitation and activated account`,
       details: JSON.stringify({ email: user.email }),
     });
 
     // Issue JWT for immediate login
-    const jwtSecret = process.env.JWT_SECRET || 'default_secret_change_me';
-    const tokenJwt = jwt.sign({ id: user.id }, jwtSecret, { expiresIn: '24h' });
+    const jwtSecret = process.env.JWT_SECRET || "default_secret_change_me";
+    const tokenJwt = jwt.sign({ id: user.id }, jwtSecret, { expiresIn: "24h" });
 
     // Reload user without password
-    const activatedUser = await User.findByPk(user.id, { include: [{ association: 'roles' }] });
+    const activatedUser = await User.findByPk(user.id, {
+      include: [{ association: "roles" }],
+    });
 
-    logger.info('Invitation accepted successfully', { userId: user.id });
+    logger.info("Invitation accepted successfully", { userId: user.id });
     return res.status(200).json({
       success: true,
-      message: 'Account activated successfully',
+      message: "Account activated successfully",
       data: {
         token: tokenJwt,
         user: activatedUser,
       },
     });
   } catch (error: any) {
-    logger.error('Error accepting invitation', error);
+    logger.error("Error accepting invitation", error);
     return res.status(500).json({
       success: false,
-      message: 'Error accepting invitation',
+      message: "Error accepting invitation",
       error: error.message,
     });
   }
@@ -1447,39 +1828,50 @@ export const acceptInvitation = async (req: Request, res: Response) => {
 export const getMyTeamMembers = async (req: Request, res: Response) => {
   const authUser = (req as any).user;
   if (!authUser || !authUser.id) {
-    logger.warn('Unauthorized team members request: missing auth user');
-    return res.status(401).json({ success: false, message: 'Unauthorized' });
+    logger.warn("Unauthorized team members request: missing auth user");
+    return res.status(401).json({ success: false, message: "Unauthorized" });
   }
 
   const userId = authUser.id;
-  
+
   // Pagination parameters
-  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
-  const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit || '20'), 10)));
+  const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
+  const limit = Math.max(
+    1,
+    Math.min(100, parseInt(String(req.query.limit || "20"), 10)),
+  );
   const offset = (page - 1) * limit;
-  
+
   // Entity filter parameters
   const filterEntityId = req.query.entityId ? String(req.query.entityId) : null;
-  const filterEntityType = req.query.entityType ? String(req.query.entityType) : null;
-  
-  logger.info('Getting team members for user', { userId, page, limit, filterEntityId, filterEntityType });
+  const filterEntityType = req.query.entityType
+    ? String(req.query.entityType)
+    : null;
+
+  logger.info("Getting team members for user", {
+    userId,
+    page,
+    limit,
+    filterEntityId,
+    filterEntityType,
+  });
 
   try {
     // Get all entity associations for the current user
     const [userProjects, userSubprojects, userActivities] = await Promise.all([
       ProjectUser.findAll({
         where: { userId },
-        attributes: ['projectId'],
+        attributes: ["projectId"],
         raw: true,
       }),
       SubprojectUser.findAll({
         where: { userId },
-        attributes: ['subprojectId'],
+        attributes: ["subprojectId"],
         raw: true,
       }),
       ActivityUser.findAll({
         where: { userId },
-        attributes: ['activityId'],
+        attributes: ["activityId"],
         raw: true,
       }),
     ]);
@@ -1488,7 +1880,7 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
     const directSubprojectIds = userSubprojects.map((s: any) => s.subprojectId);
     const directActivityIds = userActivities.map((a: any) => a.activityId);
 
-    logger.info('User direct entity associations', {
+    logger.info("User direct entity associations", {
       userId,
       projectCount: projectIds.length,
       subprojectCount: directSubprojectIds.length,
@@ -1503,25 +1895,27 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
     if (projectIds.length > 0) {
       const childSubprojects = await Subproject.findAll({
         where: { projectId: { [Op.in]: projectIds } },
-        attributes: ['id'],
+        attributes: ["id"],
         raw: true,
       });
       const childSubprojectIds = childSubprojects.map((s: any) => s.id);
-      allSubprojectIds = [...new Set([...allSubprojectIds, ...childSubprojectIds])];
+      allSubprojectIds = [
+        ...new Set([...allSubprojectIds, ...childSubprojectIds]),
+      ];
     }
 
     // For each subproject (direct + children of projects), include all child activities
     if (allSubprojectIds.length > 0) {
       const childActivities = await Activity.findAll({
         where: { subprojectId: { [Op.in]: allSubprojectIds } },
-        attributes: ['id'],
+        attributes: ["id"],
         raw: true,
       });
       const childActivityIds = childActivities.map((a: any) => a.id);
       allActivityIds = [...new Set([...allActivityIds, ...childActivityIds])];
     }
 
-    logger.info('User entity associations with hierarchy', {
+    logger.info("User entity associations with hierarchy", {
       userId,
       projectCount: projectIds.length,
       totalSubprojects: allSubprojectIds.length,
@@ -1535,43 +1929,76 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
 
     if (filterEntityId && filterEntityType) {
       // Validate that the user has access to the filtered entity
-      if (filterEntityType === 'project' && !projectIds.includes(filterEntityId)) {
-        logger.warn('User attempted to filter by unauthorized project', { userId, filterEntityId });
-        return res.status(403).json({ success: false, message: 'Access denied to specified entity' });
+      if (
+        filterEntityType === "project" &&
+        !projectIds.includes(filterEntityId)
+      ) {
+        logger.warn("User attempted to filter by unauthorized project", {
+          userId,
+          filterEntityId,
+        });
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message: "Access denied to specified entity",
+          });
       }
-      if (filterEntityType === 'subproject' && !allSubprojectIds.includes(filterEntityId)) {
-        logger.warn('User attempted to filter by unauthorized subproject', { userId, filterEntityId });
-        return res.status(403).json({ success: false, message: 'Access denied to specified entity' });
+      if (
+        filterEntityType === "subproject" &&
+        !allSubprojectIds.includes(filterEntityId)
+      ) {
+        logger.warn("User attempted to filter by unauthorized subproject", {
+          userId,
+          filterEntityId,
+        });
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message: "Access denied to specified entity",
+          });
       }
-      if (filterEntityType === 'activity' && !allActivityIds.includes(filterEntityId)) {
-        logger.warn('User attempted to filter by unauthorized activity', { userId, filterEntityId });
-        return res.status(403).json({ success: false, message: 'Access denied to specified entity' });
+      if (
+        filterEntityType === "activity" &&
+        !allActivityIds.includes(filterEntityId)
+      ) {
+        logger.warn("User attempted to filter by unauthorized activity", {
+          userId,
+          filterEntityId,
+        });
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message: "Access denied to specified entity",
+          });
       }
 
       // Apply the filter with hierarchy
-      if (filterEntityType === 'project') {
+      if (filterEntityType === "project") {
         // When filtering by project, include the project AND all its child subprojects
         filteredProjectIds = [filterEntityId];
-        
+
         // Get child subprojects for this specific project
         const projectChildSubprojects = await Subproject.findAll({
           where: { projectId: filterEntityId },
-          attributes: ['id'],
+          attributes: ["id"],
           raw: true,
         });
         filteredSubprojectIds = projectChildSubprojects.map((s: any) => s.id);
         filteredActivityIds = [];
-        
-        logger.info('Filtering team by project with hierarchy', { 
-          filterEntityId, 
-          childSubprojects: filteredSubprojectIds.length 
+
+        logger.info("Filtering team by project with hierarchy", {
+          filterEntityId,
+          childSubprojects: filteredSubprojectIds.length,
         });
-      } else if (filterEntityType === 'subproject') {
+      } else if (filterEntityType === "subproject") {
         // Subproject filter - no hierarchy needed
         filteredProjectIds = [];
         filteredSubprojectIds = [filterEntityId];
         filteredActivityIds = [];
-      } else if (filterEntityType === 'activity') {
+      } else if (filterEntityType === "activity") {
         // Activity filter - no hierarchy needed
         filteredProjectIds = [];
         filteredSubprojectIds = [];
@@ -1589,7 +2016,7 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
           projectId: { [Op.in]: filteredProjectIds },
           userId: { [Op.ne]: userId },
         },
-        attributes: ['userId'],
+        attributes: ["userId"],
         raw: true,
       });
       projectMembers.forEach((pm: any) => teamMemberIds.add(pm.userId));
@@ -1602,7 +2029,7 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
           subprojectId: { [Op.in]: filteredSubprojectIds },
           userId: { [Op.ne]: userId },
         },
-        attributes: ['userId'],
+        attributes: ["userId"],
         raw: true,
       });
       subprojectMembers.forEach((sm: any) => teamMemberIds.add(sm.userId));
@@ -1615,7 +2042,7 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
           activityId: { [Op.in]: filteredActivityIds },
           userId: { [Op.ne]: userId },
         },
-        attributes: ['userId'],
+        attributes: ["userId"],
         raw: true,
       });
       activityMembers.forEach((am: any) => teamMemberIds.add(am.userId));
@@ -1628,7 +2055,7 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
     // Build user query with optional search
     const userWhere: any = { id: { [Op.in]: teamMemberIdsArray } };
     const searchParam = req.query.search;
-    if (searchParam && typeof searchParam === 'string' && searchParam.trim()) {
+    if (searchParam && typeof searchParam === "string" && searchParam.trim()) {
       const term = `%${searchParam.trim()}%`;
       userWhere[Op.or] = [
         { firstName: { [Op.iLike]: term } },
@@ -1638,17 +2065,26 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
     }
 
     // Fetch full user details for team members (paginated)
-    const teamMembers = teamMemberIdsArray.length > 0
-      ? await User.findAll({
-          where: userWhere,
-          include: [{ association: 'roles' }],
-          order: [['firstName', 'ASC'], ['lastName', 'ASC']],
-          limit,
-          offset,
-        })
-      : [];
+    const teamMembers =
+      teamMemberIdsArray.length > 0
+        ? await User.findAll({
+            where: userWhere,
+            include: [{ association: "roles" }],
+            order: [
+              ["firstName", "ASC"],
+              ["lastName", "ASC"],
+            ],
+            limit,
+            offset,
+          })
+        : [];
 
-    logger.info('Successfully retrieved team members', { userId, teamMemberCount: teamMembers.length, page, totalItems });
+    logger.info("Successfully retrieved team members", {
+      userId,
+      teamMemberCount: teamMembers.length,
+      page,
+      totalItems,
+    });
     return res.status(200).json({
       success: true,
       data: {
@@ -1661,10 +2097,13 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
       totalItems,
     });
   } catch (error: any) {
-    logger.error('Error fetching team members', { userId, error: error.message });
+    logger.error("Error fetching team members", {
+      userId,
+      error: error.message,
+    });
     return res.status(500).json({
       success: false,
-      message: 'Internal server error',
+      message: "Internal server error",
     });
   }
 };
@@ -1676,34 +2115,45 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
 export const getMyBeneficiaries = async (req: Request, res: Response) => {
   const authUser = (req as any).user;
   if (!authUser || !authUser.id) {
-    logger.warn('Unauthorized beneficiaries request: missing auth user');
-    return res.status(401).json({ success: false, message: 'Unauthorized' });
+    logger.warn("Unauthorized beneficiaries request: missing auth user");
+    return res.status(401).json({ success: false, message: "Unauthorized" });
   }
 
   const userId = authUser.id;
-  
+
   // Pagination parameters
-  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
-  const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit || '20'), 10)));
+  const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
+  const limit = Math.max(
+    1,
+    Math.min(100, parseInt(String(req.query.limit || "20"), 10)),
+  );
   const offset = (page - 1) * limit;
-  
+
   // Entity filter parameters
   const filterEntityId = req.query.entityId ? String(req.query.entityId) : null;
-  const filterEntityType = req.query.entityType ? String(req.query.entityType) : null;
-  
-  logger.info('Getting beneficiaries for user', { userId, page, limit, filterEntityId, filterEntityType });
+  const filterEntityType = req.query.entityType
+    ? String(req.query.entityType)
+    : null;
+
+  logger.info("Getting beneficiaries for user", {
+    userId,
+    page,
+    limit,
+    filterEntityId,
+    filterEntityType,
+  });
 
   try {
     // Get all entity associations for the current user
     const [userProjects, userSubprojects] = await Promise.all([
       ProjectUser.findAll({
         where: { userId },
-        attributes: ['projectId'],
+        attributes: ["projectId"],
         raw: true,
       }),
       SubprojectUser.findAll({
         where: { userId },
-        attributes: ['subprojectId'],
+        attributes: ["subprojectId"],
         raw: true,
       }),
     ]);
@@ -1711,7 +2161,7 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
     const projectIds = userProjects.map((p: any) => p.projectId);
     const subprojectIds = userSubprojects.map((s: any) => s.subprojectId);
 
-    logger.info('User entity associations for beneficiaries', {
+    logger.info("User entity associations for beneficiaries", {
       userId,
       projectCount: projectIds.length,
       subprojectCount: subprojectIds.length,
@@ -1722,14 +2172,16 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
     if (projectIds.length > 0) {
       const childSubprojects = await Subproject.findAll({
         where: { projectId: { [Op.in]: projectIds } },
-        attributes: ['id'],
+        attributes: ["id"],
         raw: true,
       });
       const childSubprojectIds = childSubprojects.map((s: any) => s.id);
-      allSubprojectIds = [...new Set([...allSubprojectIds, ...childSubprojectIds])];
+      allSubprojectIds = [
+        ...new Set([...allSubprojectIds, ...childSubprojectIds]),
+      ];
     }
 
-    logger.info('Including child subprojects', {
+    logger.info("Including child subprojects", {
       userId,
       directSubprojects: subprojectIds.length,
       totalSubprojects: allSubprojectIds.length,
@@ -1737,45 +2189,69 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
 
     // Build conditions for beneficiary assignments
     const conditions: any[] = [];
-    
+
     // Apply entity filter if provided
     if (filterEntityId && filterEntityType) {
       // Validate that the user has access to the filtered entity
-      if (filterEntityType === 'project' && !projectIds.includes(filterEntityId)) {
-        logger.warn('User attempted to filter by unauthorized project', { userId, filterEntityId });
-        return res.status(403).json({ success: false, message: 'Access denied to specified entity' });
+      if (
+        filterEntityType === "project" &&
+        !projectIds.includes(filterEntityId)
+      ) {
+        logger.warn("User attempted to filter by unauthorized project", {
+          userId,
+          filterEntityId,
+        });
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message: "Access denied to specified entity",
+          });
       }
-      if (filterEntityType === 'subproject' && !allSubprojectIds.includes(filterEntityId)) {
-        logger.warn('User attempted to filter by unauthorized subproject', { userId, filterEntityId });
-        return res.status(403).json({ success: false, message: 'Access denied to specified entity' });
+      if (
+        filterEntityType === "subproject" &&
+        !allSubprojectIds.includes(filterEntityId)
+      ) {
+        logger.warn("User attempted to filter by unauthorized subproject", {
+          userId,
+          filterEntityId,
+        });
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message: "Access denied to specified entity",
+          });
       }
-      
+
       // Apply the filter with hierarchy
-      if (filterEntityType === 'project') {
+      if (filterEntityType === "project") {
         // When filtering by project, include the project AND all its child subprojects
         conditions.push({
           entityId: filterEntityId,
-          entityType: 'project',
+          entityType: "project",
         });
-        
+
         // Get child subprojects for this specific project
         const projectChildSubprojects = await Subproject.findAll({
           where: { projectId: filterEntityId },
-          attributes: ['id'],
+          attributes: ["id"],
           raw: true,
         });
-        const projectChildSubprojectIds = projectChildSubprojects.map((s: any) => s.id);
-        
+        const projectChildSubprojectIds = projectChildSubprojects.map(
+          (s: any) => s.id,
+        );
+
         if (projectChildSubprojectIds.length > 0) {
           conditions.push({
             entityId: { [Op.in]: projectChildSubprojectIds },
-            entityType: 'subproject',
+            entityType: "subproject",
           });
         }
-        
-        logger.info('Filtering by project with hierarchy', { 
-          filterEntityId, 
-          childSubprojects: projectChildSubprojectIds.length 
+
+        logger.info("Filtering by project with hierarchy", {
+          filterEntityId,
+          childSubprojects: projectChildSubprojectIds.length,
         });
       } else {
         // Subproject filter - no hierarchy needed
@@ -1789,20 +2265,23 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
       if (projectIds.length > 0) {
         conditions.push({
           entityId: { [Op.in]: projectIds },
-          entityType: 'project',
+          entityType: "project",
         });
       }
 
       if (allSubprojectIds.length > 0) {
         conditions.push({
           entityId: { [Op.in]: allSubprojectIds },
-          entityType: 'subproject',
+          entityType: "subproject",
         });
       }
     }
 
     if (conditions.length === 0) {
-      logger.info('User has no entity associations, returning empty beneficiaries list', { userId });
+      logger.info(
+        "User has no entity associations, returning empty beneficiaries list",
+        { userId },
+      );
       return res.status(200).json({
         success: true,
         data: {
@@ -1819,23 +2298,32 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
     // Find beneficiary assignments matching user's entities (including children)
     const beneficiaryAssignments = await BeneficiaryAssignment.findAll({
       where: { [Op.or]: conditions },
-      attributes: ['beneficiaryId'],
-      group: ['beneficiaryId'],
+      attributes: ["beneficiaryId"],
+      group: ["beneficiaryId"],
       raw: true,
     });
 
-    const beneficiaryIds = beneficiaryAssignments.map((ba: any) => ba.beneficiaryId);
+    const beneficiaryIds = beneficiaryAssignments.map(
+      (ba: any) => ba.beneficiaryId,
+    );
 
     // Determine if user can view decrypted PII (same logic as beneficiaries controller)
     const roles = (req as any).userRoles || [];
-    const roleNames: string[] = roles.map((r: any) => (typeof r === 'string' ? r : r?.name)).filter(Boolean);
+    const roleNames: string[] = roles
+      .map((r: any) => (typeof r === "string" ? r : r?.name))
+      .filter(Boolean);
     // Relaxed policy: allow all roles to decrypt PII for now
     const canDecrypt = true;
-    logger.info('My beneficiaries role evaluation', { userId, roleNames, canDecrypt });
+    logger.info("My beneficiaries role evaluation", {
+      userId,
+      roleNames,
+      canDecrypt,
+    });
 
-    const { decryptField } = require('../../utils/crypto');
+    const { decryptField } = require("../../utils/crypto");
     const searchParam = req.query.search;
-    const hasSearch = searchParam && typeof searchParam === 'string' && searchParam.trim();
+    const hasSearch =
+      searchParam && typeof searchParam === "string" && searchParam.trim();
 
     // Helper to build a decrypted beneficiary object
     const mapBeneficiary = (b: any) => {
@@ -1885,22 +2373,36 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
     let totalPages: number;
 
     const beneficiaryAttrs = [
-      'id', 'pseudonym', 'status', 'createdAt', 'updatedAt',
-      'firstNameEnc', 'lastNameEnc', 'dobEnc', 'genderEnc',
-      'addressEnc', 'municipalityEnc', 'nationalityEnc',
-      'nationalIdEnc', 'phoneEnc', 'emailEnc',
-      'ethnicityEnc', 'residenceEnc', 'householdMembersEnc',
+      "id",
+      "pseudonym",
+      "status",
+      "createdAt",
+      "updatedAt",
+      "firstNameEnc",
+      "lastNameEnc",
+      "dobEnc",
+      "genderEnc",
+      "addressEnc",
+      "municipalityEnc",
+      "nationalityEnc",
+      "nationalIdEnc",
+      "phoneEnc",
+      "emailEnc",
+      "ethnicityEnc",
+      "residenceEnc",
+      "householdMembersEnc",
     ];
 
     if (hasSearch) {
       // When searching, we must decrypt all records first, then filter in memory
-      const allBeneficiariesRaw = beneficiaryIds.length > 0
-        ? await Beneficiary.findAll({
-            where: { id: { [Op.in]: beneficiaryIds } },
-            attributes: beneficiaryAttrs,
-            order: [['pseudonym', 'ASC']],
-          })
-        : [];
+      const allBeneficiariesRaw =
+        beneficiaryIds.length > 0
+          ? await Beneficiary.findAll({
+              where: { id: { [Op.in]: beneficiaryIds } },
+              attributes: beneficiaryAttrs,
+              order: [["pseudonym", "ASC"]],
+            })
+          : [];
 
       const searchLower = (searchParam as string).trim().toLowerCase();
 
@@ -1909,33 +2411,44 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
         .map((b: any) => mapBeneficiary(b))
         .filter(({ mapped, pii }) => {
           // Check pseudonym
-          if (mapped.pseudonym && mapped.pseudonym.toLowerCase().includes(searchLower)) return true;
+          if (
+            mapped.pseudonym &&
+            mapped.pseudonym.toLowerCase().includes(searchLower)
+          )
+            return true;
           // Check all decrypted PII text fields
           const piiValues = Object.values(pii) as (string | null)[];
-          return piiValues.some((val) => val && val.toLowerCase().includes(searchLower));
+          return piiValues.some(
+            (val) => val && val.toLowerCase().includes(searchLower),
+          );
         });
 
       totalItems = filtered.length;
       totalPages = Math.ceil(totalItems / limit);
 
       // Apply pagination to the filtered results
-      beneficiaries = filtered.slice(offset, offset + limit).map(({ mapped }) => mapped);
+      beneficiaries = filtered
+        .slice(offset, offset + limit)
+        .map(({ mapped }) => mapped);
     } else {
       // No search — use efficient DB-level pagination
       totalItems = beneficiaryIds.length;
       totalPages = Math.ceil(totalItems / limit);
 
-      const beneficiariesRaw = beneficiaryIds.length > 0
-        ? await Beneficiary.findAll({
-            where: { id: { [Op.in]: beneficiaryIds } },
-            attributes: beneficiaryAttrs,
-            order: [['pseudonym', 'ASC']],
-            limit,
-            offset,
-          })
-        : [];
+      const beneficiariesRaw =
+        beneficiaryIds.length > 0
+          ? await Beneficiary.findAll({
+              where: { id: { [Op.in]: beneficiaryIds } },
+              attributes: beneficiaryAttrs,
+              order: [["pseudonym", "ASC"]],
+              limit,
+              offset,
+            })
+          : [];
 
-      beneficiaries = beneficiariesRaw.map((b: any) => mapBeneficiary(b).mapped);
+      beneficiaries = beneficiariesRaw.map(
+        (b: any) => mapBeneficiary(b).mapped,
+      );
     }
 
     if (canDecrypt) {
@@ -1943,21 +2456,31 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
       try {
         await AuditLog.create({
           userId,
-          action: 'BENEFICIARY_PII_LIST_READ',
+          action: "BENEFICIARY_PII_LIST_READ",
           description: `Read PII for ${beneficiaries.length} beneficiaries via GET /users/my-beneficiaries`,
-          details: JSON.stringify({ count: beneficiaries.length, searched: !!hasSearch }),
+          details: JSON.stringify({
+            count: beneficiaries.length,
+            searched: !!hasSearch,
+          }),
         });
-      } catch (_) { /* ignore audit failures */ }
+      } catch (_) {
+        /* ignore audit failures */
+      }
 
       // Prevent caching decrypted responses
-      res.setHeader('Cache-Control', 'no-store');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('X-PII-Access', 'decrypt');
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("X-PII-Access", "decrypt");
     } else {
-      res.setHeader('X-PII-Access', 'encrypted');
+      res.setHeader("X-PII-Access", "encrypted");
     }
 
-    logger.info('Successfully retrieved beneficiaries', { userId, beneficiaryCount: beneficiaries.length, page, totalItems });
+    logger.info("Successfully retrieved beneficiaries", {
+      userId,
+      beneficiaryCount: beneficiaries.length,
+      page,
+      totalItems,
+    });
     return res.status(200).json({
       success: true,
       data: {
@@ -1970,10 +2493,13 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
       totalItems,
     });
   } catch (error: any) {
-    logger.error('Error fetching beneficiaries', { userId, error: error.message });
+    logger.error("Error fetching beneficiaries", {
+      userId,
+      error: error.message,
+    });
     return res.status(500).json({
       success: false,
-      message: 'Internal server error',
+      message: "Internal server error",
     });
   }
 };
@@ -1983,38 +2509,52 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
  */
 export const updateUserRoles = async (req: Request, res: Response) => {
   const { id } = req.params;
-  logger.info('Updating user roles', { userId: id });
+  logger.info("Updating user roles", { userId: id });
 
   try {
     const { roleIds } = req.body;
 
     if (!roleIds || !Array.isArray(roleIds) || roleIds.length === 0) {
-      logger.warn('Invalid or empty roleIds provided', { userId: id });
+      logger.warn("Invalid or empty roleIds provided", { userId: id });
       return res.status(400).json({
         success: false,
-        message: 'Please provide a non-empty array of roleIds',
+        message: "Please provide a non-empty array of roleIds",
       });
     }
 
-    // Validate that no protected roles are being assigned
-    try {
-      const stringRoleIds = roleIds.map((rid: string | number) => String(rid));
-      await validateNoProtectedRoles(stringRoleIds);
-    } catch (error: any) {
-      logger.warn('Attempted to assign protected role', { userId: id, roleIds, error: error.message });
-      return res.status(403).json({
-        success: false,
-        message: error.message || 'Cannot assign protected role',
-      });
+    // SuperAdmin can assign any role; others are blocked from assigning protected roles
+    const updaterRoles = ((req as any).userRoles || [])
+      .map((r: any) => (typeof r === "string" ? r : r?.name))
+      .filter(Boolean);
+    const updaterIsSuperAdmin = updaterRoles.includes(ROLES.SUPER_ADMIN);
+
+    // Validate that no protected roles are being assigned (skip for SuperAdmin)
+    if (!updaterIsSuperAdmin) {
+      try {
+        const stringRoleIds = roleIds.map((rid: string | number) =>
+          String(rid),
+        );
+        await validateNoProtectedRoles(stringRoleIds);
+      } catch (error: any) {
+        logger.warn("Attempted to assign protected role", {
+          userId: id,
+          roleIds,
+          error: error.message,
+        });
+        return res.status(403).json({
+          success: false,
+          message: error.message || "Cannot assign protected role",
+        });
+      }
     }
 
     // Find user
     const user = await User.findByPk(id);
     if (!user) {
-      logger.warn('User not found for role update', { userId: id });
+      logger.warn("User not found for role update", { userId: id });
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
@@ -2031,38 +2571,47 @@ export const updateUserRoles = async (req: Request, res: Response) => {
       });
 
       if (roles.length === 0) {
-        logger.info('No roles found by direct ID, trying to find by index', { roleIds });
-        const allRoles = await Role.findAll({ order: [['createdAt', 'ASC']] });
+        logger.info("No roles found by direct ID, trying to find by index", {
+          roleIds,
+        });
+        const allRoles = await Role.findAll({ order: [["createdAt", "ASC"]] });
         roles = roleIds
           .map((rid: string | number) => {
-            const index = typeof rid === 'number' ? rid - 1 : parseInt(String(rid)) - 1;
-            return index >= 0 && index < allRoles.length ? allRoles[index] : null;
+            const index =
+              typeof rid === "number" ? rid - 1 : parseInt(String(rid)) - 1;
+            return index >= 0 && index < allRoles.length
+              ? allRoles[index]
+              : null;
           })
           .filter((role: Role | null): role is Role => role !== null);
       }
     } catch (error) {
-      logger.error('Error finding roles', error);
+      logger.error("Error finding roles", error);
       roles = [];
     }
 
-    // Double-check: filter out any protected roles
-    const protectedRoles = roles.filter(r => isProtectedRole(r.name));
-    if (protectedRoles.length > 0) {
-      logger.warn('Protected roles detected and removed from assignment', { 
-        userId: id, 
-        protectedRoleNames: protectedRoles.map(r => r.name) 
-      });
-      return res.status(403).json({
-        success: false,
-        message: 'Cannot assign protected role(s): ' + protectedRoles.map(r => r.name).join(', '),
-      });
+    // Double-check: filter out any protected roles (skip for SuperAdmin)
+    if (!updaterIsSuperAdmin) {
+      const protectedRoles = roles.filter((r) => isProtectedRole(r.name));
+      if (protectedRoles.length > 0) {
+        logger.warn("Protected roles detected and removed from assignment", {
+          userId: id,
+          protectedRoleNames: protectedRoles.map((r) => r.name),
+        });
+        return res.status(403).json({
+          success: false,
+          message:
+            "Cannot assign protected role(s): " +
+            protectedRoles.map((r) => r.name).join(", "),
+        });
+      }
     }
 
     if (roles.length === 0) {
-      logger.warn('No valid roles found to assign', { roleIds });
+      logger.warn("No valid roles found to assign", { roleIds });
       return res.status(400).json({
         success: false,
-        message: 'No valid roles found for the provided roleIds',
+        message: "No valid roles found for the provided roleIds",
       });
     }
 
@@ -2075,26 +2624,29 @@ export const updateUserRoles = async (req: Request, res: Response) => {
         UserRole.create({
           userId: id,
           roleId: role.id,
-        })
-      )
+        }),
+      ),
     );
 
     // Return updated user with roles
     const updatedUser = await User.findByPk(id, {
-      include: [{ model: Role, as: 'roles' }],
+      include: [{ model: Role, as: "roles" }],
     });
 
-    logger.info('User roles updated successfully', { userId: id, roleCount: roles.length });
+    logger.info("User roles updated successfully", {
+      userId: id,
+      roleCount: roles.length,
+    });
     return res.status(200).json({
       success: true,
-      message: 'User roles updated successfully',
+      message: "User roles updated successfully",
       data: updatedUser,
     });
   } catch (error: any) {
     logger.error(`Error updating roles for user with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
-      message: 'Error updating user roles',
+      message: "Error updating user roles",
       error: error.message,
     });
   }
@@ -2105,18 +2657,18 @@ export const updateUserRoles = async (req: Request, res: Response) => {
  */
 export const getUserPermissions = async (req: Request, res: Response) => {
   const { id } = req.params;
-  logger.info('Getting user permissions', { userId: id });
+  logger.info("Getting user permissions", { userId: id });
 
   try {
     const user = await User.findByPk(id, {
       include: [
         {
           model: Role,
-          as: 'roles',
+          as: "roles",
           include: [
             {
               model: Permission,
-              as: 'permissions',
+              as: "permissions",
             },
           ],
         },
@@ -2124,14 +2676,14 @@ export const getUserPermissions = async (req: Request, res: Response) => {
     });
 
     if (!user) {
-      logger.warn('User not found for permissions lookup', { userId: id });
+      logger.warn("User not found for permissions lookup", { userId: id });
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
-    const roles = (user.get('roles') as any[]) || [];
+    const roles = (user.get("roles") as any[]) || [];
 
     // Collect unique permissions across all roles
     const permissionMap = new Map<string, any>();
@@ -2152,7 +2704,10 @@ export const getUserPermissions = async (req: Request, res: Response) => {
 
     const permissions = Array.from(permissionMap.values());
 
-    logger.info('Successfully retrieved user permissions', { userId: id, permissionCount: permissions.length });
+    logger.info("Successfully retrieved user permissions", {
+      userId: id,
+      permissionCount: permissions.length,
+    });
     return res.status(200).json({
       success: true,
       data: {
@@ -2165,7 +2720,7 @@ export const getUserPermissions = async (req: Request, res: Response) => {
     logger.error(`Error fetching permissions for user with ID: ${id}`, error);
     return res.status(500).json({
       success: false,
-      message: 'Error fetching user permissions',
+      message: "Error fetching user permissions",
       error: error.message,
     });
   }
