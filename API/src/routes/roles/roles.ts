@@ -1,8 +1,8 @@
-import { Router, Request, Response } from 'express';
-import rolesController from '../../controllers/roles';
-import { authenticate, authorize } from '../../middlewares/auth';
-import loggerMiddleware from '../../middlewares/logger';
-import { ROLES } from '../../constants/roles';
+import { Router, Request, Response } from "express";
+import rolesController from "../../controllers/roles";
+import { authenticate, authorize } from "../../middlewares/auth";
+import loggerMiddleware from "../../middlewares/logger";
+import { ROLES } from "../../constants/roles";
 
 const router = Router();
 
@@ -87,12 +87,17 @@ router.use(loggerMiddleware);
  *         description: Paginated list of roles
  */
 router.get(
-  '/',
+  "/",
   authenticate,
-  authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
+  authorize([
+    ROLES.SUPER_ADMIN,
+    ROLES.SYSTEM_ADMINISTRATOR,
+    ROLES.PROGRAM_MANAGER,
+    ROLES.SUB_PROJECT_MANAGER,
+  ]),
   (req: Request, res: Response): void => {
     rolesController.list(req, res);
-  }
+  },
 );
 
 /**
@@ -117,12 +122,12 @@ router.get(
  *         description: Not found
  */
 router.get(
-  '/:id',
+  "/:id",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     rolesController.getById(req, res);
-  }
+  },
 );
 
 /**
@@ -148,12 +153,12 @@ router.get(
  *         description: Created
  */
 router.post(
-  '/',
+  "/",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     rolesController.create(req, res);
-  }
+  },
 );
 
 /**
@@ -185,12 +190,12 @@ router.post(
  *         description: Updated
  */
 router.put(
-  '/:id',
+  "/:id",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     rolesController.update(req, res);
-  }
+  },
 );
 
 /**
@@ -213,12 +218,12 @@ router.put(
  *         description: Deleted
  */
 router.delete(
-  '/:id',
+  "/:id",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     rolesController.remove(req, res);
-  }
+  },
 );
 
 /**
@@ -241,12 +246,12 @@ router.delete(
  *         description: Permissions for the role
  */
 router.get(
-  '/:id/permissions',
+  "/:id/permissions",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     rolesController.getPermissions(req, res);
-  }
+  },
 );
 
 /**
@@ -283,12 +288,12 @@ router.get(
  *         description: Updated role with permissions
  */
 router.put(
-  '/:id/permissions',
+  "/:id/permissions",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     rolesController.setPermissions(req, res);
-  }
+  },
 );
 
 export default router;
