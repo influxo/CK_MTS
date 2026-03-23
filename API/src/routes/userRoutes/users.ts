@@ -1,8 +1,8 @@
-import { Router, Request, Response } from 'express';
-import usersController from '../../controllers/users';
-import { authenticate, authorize } from '../../middlewares/auth';
-import loggerMiddleware from '../../middlewares/logger';
-import { ROLES } from '../../constants/roles';
+import { Router, Request, Response } from "express";
+import usersController from "../../controllers/users";
+import { authenticate, authorize } from "../../middlewares/auth";
+import loggerMiddleware from "../../middlewares/logger";
+import { ROLES } from "../../constants/roles";
 
 const router = Router();
 
@@ -61,12 +61,9 @@ router.use(loggerMiddleware);
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/', 
-  authenticate, 
-  (req: Request, res: Response): void => {
-    usersController.getAllUsers(req, res);
-  }
-);
+router.get("/", authenticate, (req: Request, res: Response): void => {
+  usersController.getAllUsers(req, res);
+});
 
 /**
  * @swagger
@@ -147,12 +144,9 @@ router.get('/',
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/my-team',
-  authenticate,
-  (req: Request, res: Response): void => {
-    usersController.getMyTeamMembers(req, res);
-  }
-);
+router.get("/my-team", authenticate, (req: Request, res: Response): void => {
+  usersController.getMyTeamMembers(req, res);
+});
 
 /**
  * @swagger
@@ -316,11 +310,12 @@ router.get('/my-team',
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/my-beneficiaries',
+router.get(
+  "/my-beneficiaries",
   authenticate,
   (req: Request, res: Response): void => {
     usersController.getMyBeneficiaries(req, res);
-  }
+  },
 );
 
 /**
@@ -355,12 +350,9 @@ router.get('/my-beneficiaries',
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/:id', 
-  authenticate, 
-  (req: Request, res: Response): void => {
-    usersController.getUserById(req, res);
-  }
-);
+router.get("/:id", authenticate, (req: Request, res: Response): void => {
+  usersController.getUserById(req, res);
+});
 
 /**
  * @swagger
@@ -391,11 +383,11 @@ router.get('/:id',
  *         $ref: '#/components/responses/ServerError'
  */
 router.get(
-  '/:id/projects',
+  "/:id/projects",
   authenticate,
   (req: Request, res: Response): void => {
     usersController.getUserProjectsWithSubprojects(req, res);
-  }
+  },
 );
 
 /**
@@ -449,11 +441,9 @@ router.get(
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/', 
-  (req: Request, res: Response): void => {
-    usersController.createUser(req, res);
-  }
-);
+router.post("/", (req: Request, res: Response): void => {
+  usersController.createUser(req, res);
+});
 
 /**
  * @swagger
@@ -488,12 +478,9 @@ router.post('/',
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.put('/me',
-  authenticate,
-  (req: Request, res: Response): void => {
-    usersController.updateMyProfile(req, res);
-  }
-);
+router.put("/me", authenticate, (req: Request, res: Response): void => {
+  usersController.updateMyProfile(req, res);
+});
 
 /**
  * @swagger
@@ -551,12 +538,13 @@ router.put('/me',
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.put('/:id', 
-  authenticate, 
-  authorize(['System Administrator']), 
+router.put(
+  "/:id",
+  authenticate,
+  authorize(["System Administrator"]),
   (req: Request, res: Response): void => {
     usersController.updateUser(req, res);
-  }
+  },
 );
 
 /**
@@ -589,12 +577,13 @@ router.put('/:id',
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.delete('/:id', 
-  authenticate, 
-  authorize(['System Administrator']), 
+router.delete(
+  "/:id",
+  authenticate,
+  authorize(["System Administrator"]),
   (req: Request, res: Response): void => {
     usersController.deleteUser(req, res);
-  }
+  },
 );
 
 /**
@@ -634,12 +623,13 @@ router.delete('/:id',
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/:id/reset-password', 
-  authenticate, 
-  authorize(['System Administrator']), 
+router.post(
+  "/:id/reset-password",
+  authenticate,
+  authorize(["System Administrator"]),
   (req: Request, res: Response): void => {
     usersController.resetPassword(req, res);
-  }
+  },
 );
 
 /**
@@ -710,12 +700,13 @@ router.post('/:id/reset-password',
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/invite', 
-  authenticate, 
-  authorize(['System Administrator']), 
+router.post(
+  "/invite",
+  authenticate,
+  authorize(["System Administrator", "SuperAdmin"]),
   (req: Request, res: Response): void => {
     usersController.inviteUser(req, res);
-  }
+  },
 );
 
 /**
@@ -763,12 +754,13 @@ router.post('/invite',
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.put('/:id/roles',
+router.put(
+  "/:id/roles",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     usersController.updateUserRoles(req, res);
-  }
+  },
 );
 
 /**
@@ -835,12 +827,13 @@ router.put('/:id/roles',
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/:id/permissions',
+router.get(
+  "/:id/permissions",
   authenticate,
   authorize([ROLES.SUPER_ADMIN, ROLES.SYSTEM_ADMINISTRATOR]),
   (req: Request, res: Response): void => {
     usersController.getUserPermissions(req, res);
-  }
+  },
 );
 
 export default router;
