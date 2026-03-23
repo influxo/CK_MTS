@@ -17,13 +17,13 @@ export const generateInvitationEmail = ({
     <html>
       <head>
         <meta charset="UTF-8" />
-        <title>Invitation to CaritasMotherTeresa</title>
+        <title>Invitation to Caritas Kosova</title>
       </head>
       <body style="font-family: sans-serif; background-color: #f9fafb; padding: 20px;">
         <table style="max-width: 600px; margin: auto; background: #ffffff; border-radius: 8px; padding: 20px;">
           <tr>
             <td>
-              <h2 style="margin-bottom: 10px;">Invitation to CaritasMotherTeresa</h2>
+              <h2 style="margin-bottom: 10px;">Invitation to Caritas Kosova</h2>
               <hr style="margin: 20px 0;" />
               <div style="margin-bottom: 20px; display: flex; align-items: center;">
                 <div>
@@ -32,7 +32,7 @@ export const generateInvitationEmail = ({
               </div>
   
               <p style="font-size: 14px; margin-bottom: 15px;">
-                You’ve been invited to join <strong>CaritasMotherTeresa</strong>. Click the button below to accept the invitation and set up your account.
+                You’ve been invited to join <strong>Caritas Kosova</strong>. Click the button below to accept the invitation and set up your account.
               </p>
               <p style="font-size: 12px; color:rgb(9, 9, 9);">
                 ${message}

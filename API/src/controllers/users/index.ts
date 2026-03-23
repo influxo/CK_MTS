@@ -439,13 +439,11 @@ export const updateMyProfile = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     logger.error("Error updating profile", error);
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Error updating profile",
-        error: error.message,
-      });
+    return res.status(500).json({
+      success: false,
+      message: "Error updating profile",
+      error: error.message,
+    });
   }
 };
 
@@ -941,6 +939,27 @@ export const updateUser = async (req: Request, res: Response) => {
       });
     }
 
+    // Only SuperAdmin can update a SuperAdmin user
+    const updaterRoles = ((req as any).userRoles || [])
+      .map((r: any) => (typeof r === "string" ? r : r?.name))
+      .filter(Boolean);
+    const updaterIsSuperAdmin = updaterRoles.includes(ROLES.SUPER_ADMIN);
+    const targetWithRoles = await User.findByPk(id, {
+      include: [{ model: Role, as: "roles" }],
+    });
+    const targetIsSuperAdmin = (targetWithRoles as any)?.roles?.some(
+      (r: any) => r.name === ROLES.SUPER_ADMIN,
+    );
+    if (targetIsSuperAdmin && !updaterIsSuperAdmin) {
+      logger.warn("Non-SuperAdmin attempted to update a SuperAdmin user", {
+        userId: id,
+      });
+      return res.status(403).json({
+        success: false,
+        message: "Only a SuperAdmin can update a SuperAdmin user.",
+      });
+    }
+
     // Check if email is being changed and if it's already in use
     if (email && email !== user.email) {
       logger.info("Email change requested", {
@@ -975,20 +994,24 @@ export const updateUser = async (req: Request, res: Response) => {
     if (roleIds && Array.isArray(roleIds)) {
       logger.info("Updating user roles", { userId: id, roleIds });
 
-      // Validate that no protected roles are being assigned
-      try {
-        const stringRoleIds = roleIds.map((id: string | number) => String(id));
-        await validateNoProtectedRoles(stringRoleIds);
-      } catch (error: any) {
-        logger.warn("Attempted to assign protected role", {
-          userId: id,
-          roleIds,
-          error: error.message,
-        });
-        return res.status(403).json({
-          success: false,
-          message: error.message || "Cannot assign protected role",
-        });
+      // Validate that no protected roles are being assigned (skip for SuperAdmin)
+      if (!updaterIsSuperAdmin) {
+        try {
+          const stringRoleIds = roleIds.map((id: string | number) =>
+            String(id),
+          );
+          await validateNoProtectedRoles(stringRoleIds);
+        } catch (error: any) {
+          logger.warn("Attempted to assign protected role", {
+            userId: id,
+            roleIds,
+            error: error.message,
+          });
+          return res.status(403).json({
+            success: false,
+            message: error.message || "Cannot assign protected role",
+          });
+        }
       }
 
       // Remove existing roles
@@ -1044,14 +1067,16 @@ export const updateUser = async (req: Request, res: Response) => {
         roles = [];
       }
 
-      // Double-check: filter out any protected roles that might have slipped through
-      const protectedRoles = roles.filter((r) => isProtectedRole(r.name));
-      if (protectedRoles.length > 0) {
-        logger.warn("Protected roles detected and removed from assignment", {
-          userId: id,
-          protectedRoleNames: protectedRoles.map((r) => r.name),
-        });
-        roles = roles.filter((r) => !isProtectedRole(r.name));
+      // Double-check: filter out any protected roles that might have slipped through (skip for SuperAdmin)
+      if (!updaterIsSuperAdmin) {
+        const protectedRoles = roles.filter((r) => isProtectedRole(r.name));
+        if (protectedRoles.length > 0) {
+          logger.warn("Protected roles detected and removed from assignment", {
+            userId: id,
+            protectedRoleNames: protectedRoles.map((r) => r.name),
+          });
+          roles = roles.filter((r) => !isProtectedRole(r.name));
+        }
       }
 
       if (roles.length > 0) {
@@ -1120,6 +1145,27 @@ export const deleteUser = async (req: Request, res: Response) => {
       });
     }
 
+    // Only SuperAdmin can archive a SuperAdmin user
+    const deleterRoles = ((req as any).userRoles || [])
+      .map((r: any) => (typeof r === "string" ? r : r?.name))
+      .filter(Boolean);
+    const deleterIsSuperAdmin = deleterRoles.includes(ROLES.SUPER_ADMIN);
+    const targetUserWithRoles = await User.findByPk(id, {
+      include: [{ model: Role, as: "roles" }],
+    });
+    const targetIsSuperAdmin = (targetUserWithRoles as any)?.roles?.some(
+      (r: any) => r.name === ROLES.SUPER_ADMIN,
+    );
+    if (targetIsSuperAdmin && !deleterIsSuperAdmin) {
+      logger.warn("Non-SuperAdmin attempted to archive a SuperAdmin user", {
+        userId: id,
+      });
+      return res.status(403).json({
+        success: false,
+        message: "Only a SuperAdmin can archive a SuperAdmin user.",
+      });
+    }
+
     // Archive user
     logger.info("Archiving user record", { userId: id });
     await user.update({
@@ -1167,6 +1213,28 @@ export const resetPassword = async (req: Request, res: Response) => {
       return res.status(404).json({
         success: false,
         message: "User not found",
+      });
+    }
+
+    // Only SuperAdmin can reset a SuperAdmin user's password
+    const resetterRoles = ((req as any).userRoles || [])
+      .map((r: any) => (typeof r === "string" ? r : r?.name))
+      .filter(Boolean);
+    const resetterIsSuperAdmin = resetterRoles.includes(ROLES.SUPER_ADMIN);
+    const targetWithRoles = await User.findByPk(id, {
+      include: [{ model: Role, as: "roles" }],
+    });
+    const targetIsSuperAdmin = (targetWithRoles as any)?.roles?.some(
+      (r: any) => r.name === ROLES.SUPER_ADMIN,
+    );
+    if (targetIsSuperAdmin && !resetterIsSuperAdmin) {
+      logger.warn(
+        "Non-SuperAdmin attempted to reset password of a SuperAdmin user",
+        { userId: id },
+      );
+      return res.status(403).json({
+        success: false,
+        message: "Only a SuperAdmin can reset a SuperAdmin user's password.",
       });
     }
 
@@ -1937,12 +2005,10 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
           userId,
           filterEntityId,
         });
-        return res
-          .status(403)
-          .json({
-            success: false,
-            message: "Access denied to specified entity",
-          });
+        return res.status(403).json({
+          success: false,
+          message: "Access denied to specified entity",
+        });
       }
       if (
         filterEntityType === "subproject" &&
@@ -1952,12 +2018,10 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
           userId,
           filterEntityId,
         });
-        return res
-          .status(403)
-          .json({
-            success: false,
-            message: "Access denied to specified entity",
-          });
+        return res.status(403).json({
+          success: false,
+          message: "Access denied to specified entity",
+        });
       }
       if (
         filterEntityType === "activity" &&
@@ -1967,12 +2031,10 @@ export const getMyTeamMembers = async (req: Request, res: Response) => {
           userId,
           filterEntityId,
         });
-        return res
-          .status(403)
-          .json({
-            success: false,
-            message: "Access denied to specified entity",
-          });
+        return res.status(403).json({
+          success: false,
+          message: "Access denied to specified entity",
+        });
       }
 
       // Apply the filter with hierarchy
@@ -2201,12 +2263,10 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
           userId,
           filterEntityId,
         });
-        return res
-          .status(403)
-          .json({
-            success: false,
-            message: "Access denied to specified entity",
-          });
+        return res.status(403).json({
+          success: false,
+          message: "Access denied to specified entity",
+        });
       }
       if (
         filterEntityType === "subproject" &&
@@ -2216,12 +2276,10 @@ export const getMyBeneficiaries = async (req: Request, res: Response) => {
           userId,
           filterEntityId,
         });
-        return res
-          .status(403)
-          .json({
-            success: false,
-            message: "Access denied to specified entity",
-          });
+        return res.status(403).json({
+          success: false,
+          message: "Access denied to specified entity",
+        });
       }
 
       // Apply the filter with hierarchy
