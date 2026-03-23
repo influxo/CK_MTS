@@ -939,17 +939,30 @@ export const updateUser = async (req: Request, res: Response) => {
       });
     }
 
-    // Only SuperAdmin can update a SuperAdmin user
+    // Get updater's roles
     const updaterRoles = ((req as any).userRoles || [])
       .map((r: any) => (typeof r === "string" ? r : r?.name))
       .filter(Boolean);
     const updaterIsSuperAdmin = updaterRoles.includes(ROLES.SUPER_ADMIN);
+    const updaterIsSysAdmin = updaterRoles.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    
+    // Only SuperAdmin and System Administrator can update users
+    if (!updaterIsSuperAdmin && !updaterIsSysAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Only SuperAdmin and System Administrator can update users.",
+      });
+    }
+    
+    // Get target user's roles
     const targetWithRoles = await User.findByPk(id, {
       include: [{ model: Role, as: "roles" }],
     });
-    const targetIsSuperAdmin = (targetWithRoles as any)?.roles?.some(
-      (r: any) => r.name === ROLES.SUPER_ADMIN,
-    );
+    const targetRoleNames = (targetWithRoles as any)?.roles?.map((r: any) => r.name) || [];
+    const targetIsSuperAdmin = targetRoleNames.includes(ROLES.SUPER_ADMIN);
+    
+    // SuperAdmin can update anyone
+    // System Administrator cannot update SuperAdmin
     if (targetIsSuperAdmin && !updaterIsSuperAdmin) {
       logger.warn("Non-SuperAdmin attempted to update a SuperAdmin user", {
         userId: id,
@@ -1163,6 +1176,16 @@ export const deleteUser = async (req: Request, res: Response) => {
       return res.status(403).json({
         success: false,
         message: "Only a SuperAdmin can archive a SuperAdmin user.",
+      });
+    }
+
+    // System Administrator can delete anyone except SuperAdmin (including other System Administrators)
+    // Check if deleter is System Administrator or SuperAdmin
+    const deleterIsSysAdmin = deleterRoles.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    if (!deleterIsSuperAdmin && !deleterIsSysAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Only SuperAdmin and System Administrator can delete users.",
       });
     }
 
@@ -1385,11 +1408,21 @@ export const inviteUser = async (req: Request, res: Response) => {
       roleIds,
     });
 
-    // SuperAdmin can assign any role; others are blocked from assigning protected roles
+    // Get inviter's roles
     const inviterRoles = ((req as any).userRoles || [])
       .map((r: any) => (typeof r === "string" ? r : r?.name))
       .filter(Boolean);
     const inviterIsSuperAdmin = inviterRoles.includes(ROLES.SUPER_ADMIN);
+    const inviterIsSysAdmin = inviterRoles.includes(ROLES.SYSTEM_ADMINISTRATOR);
+    
+    // Only SuperAdmin and System Administrator can invite users
+    if (!inviterIsSuperAdmin && !inviterIsSysAdmin) {
+      await user.destroy();
+      return res.status(403).json({
+        success: false,
+        message: "Only SuperAdmin and System Administrator can invite users.",
+      });
+    }
 
     // Validate that no protected roles are being assigned (skip for SuperAdmin)
     if (!inviterIsSuperAdmin) {
@@ -1456,6 +1489,7 @@ export const inviteUser = async (req: Request, res: Response) => {
     }
 
     // Double-check: filter out any protected roles (skip for SuperAdmin)
+    // Also validate hierarchy: System Administrator cannot invite System Administrator
     if (!inviterIsSuperAdmin) {
       const protectedRoles = roles.filter((r) => isProtectedRole(r.name));
       if (protectedRoles.length > 0) {
@@ -1469,6 +1503,16 @@ export const inviteUser = async (req: Request, res: Response) => {
           message:
             "Cannot assign protected role(s): " +
             protectedRoles.map((r) => r.name).join(", "),
+        });
+      }
+      
+      // System Administrator cannot invite System Administrator
+      const sysAdminRole = roles.find((r) => r.name === ROLES.SYSTEM_ADMINISTRATOR);
+      if (sysAdminRole) {
+        await user.destroy();
+        return res.status(403).json({
+          success: false,
+          message: "System Administrator cannot invite System Administrator.",
         });
       }
     }

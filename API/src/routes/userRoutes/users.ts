@@ -541,7 +541,7 @@ router.put("/me", authenticate, (req: Request, res: Response): void => {
 router.put(
   "/:id",
   authenticate,
-  authorize(["System Administrator"]),
+  authorize(["System Administrator", "SuperAdmin"]),
   (req: Request, res: Response): void => {
     usersController.updateUser(req, res);
   },
